@@ -1,4 +1,4 @@
-ejs
+ejs template
 forever
 cron to git pull
 logging

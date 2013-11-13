@@ -5,6 +5,12 @@ var URL = {
 
 var express = require('express');
 var commander = require('commander');
+var fs = require('fs');
+var ejs = require('ejs');
+
+var content = {
+  ejs_home: fs.readFileSync(__dirname + '/content/home.ejs', 'utf8'),
+};
 
 commander.version('1.0')
 commander.option('-p, --port [port]', 'Port to start on.', 3000)
@@ -15,7 +21,7 @@ var app = express();
 app.use(express.urlencoded());
 
 app.get('/', function(req, res) {
-  res.send('OK\n');
+  res.send(ejs.render(content.ejs_home, { h1: 'FTW' }));
 });
 
 app.post(URL.redirect, function(req, res) {
