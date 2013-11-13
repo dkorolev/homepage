@@ -1,3 +1,11 @@
 <!doctype html>
-<h1><%=h1%></h1>
-<p>Hello, World!</p>
+<h1><%=name%></h1>
+<% if(hasOwnProperty('profiles') && profiles.length) { %>
+<ul>
+<% profiles.forEach(function(e) { %>
+  <% if (e.hasOwnProperty('name') && e.hasOwnProperty('comment') && e.hasOwnProperty('url')) { %>
+    <li><a href="<%=e.url%>"><%=e.name%></a>: <%=e.comment%></li>
+  <% } %>
+<% }); %>
+</ul>
+<% } %>

@@ -3,13 +3,16 @@ var URL = {
   redirect: '/r',
 };
 
+var _ = require('underscore');
 var express = require('express');
 var commander = require('commander');
 var fs = require('fs');
 var ejs = require('ejs');
 
+var data = require('./content/data');
+
 var content = {
-  ejs_home: fs.readFileSync(__dirname + '/content/home.ejs', 'utf8'),
+  home: ejs.render(fs.readFileSync(__dirname + '/content/home.ejs', 'utf8'), data),
 };
 
 commander.version('1.0')
@@ -21,7 +24,7 @@ var app = express();
 app.use(express.urlencoded());
 
 app.get('/', function(req, res) {
-  res.send(ejs.render(content.ejs_home, { h1: 'FTW' }));
+  res.send(content.home);
 });
 
 app.post(URL.redirect, function(req, res) {
