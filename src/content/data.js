@@ -1,5 +1,5 @@
 module.exports = {
-  name: 'Dima Korolev - CRON TEST',
+  name: 'Dima Korolev',
   profiles: [
     {
       name: 'LinkedIn',
