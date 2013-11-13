@@ -4,7 +4,7 @@
 <ul>
 <% profiles.forEach(function(e) { %>
   <% if (e.hasOwnProperty('name') && e.hasOwnProperty('comment') && e.hasOwnProperty('url')) { %>
-    <li><a href="<%=e.url%>"><%=e.name%></a>: <%=e.comment%></li>
+    <li><a href="/r?url=<%=e.url%>"><%=e.name%></a>: <%=e.comment%></li>
   <% } %>
 <% }); %>
 </ul>
