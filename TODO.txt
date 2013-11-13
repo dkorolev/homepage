@@ -1,4 +1,1 @@
-logging
-add redis
-another repo for logs
-cron to fetch logs and push them
+Done (without Redis, with .txt files in another repo).

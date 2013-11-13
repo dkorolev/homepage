@@ -1,1 +1,2 @@
 * * * * * (cd ~/github/dkorolev/homepage; git pull)
+*/10 * * * * (cd ~/github/dkorolev/TOP_SECRET_REPO/; git pull; git add --all; git commit -m $(TZ=UTC date +"UTC--%Y-%m-%d--%H-%M-%S"); git push)

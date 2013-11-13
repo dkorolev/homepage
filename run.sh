@@ -1,4 +1,5 @@
 #!/bin/bash
+(cd src; npm install)
 if [ -r ~/node.env ] ; then
   source ~/node.env
 fi
