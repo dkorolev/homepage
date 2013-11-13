@@ -3,6 +3,10 @@ var URL = {
   redirect: '/r',
 };
 
+var ENV = {
+  LOG: 'DKOROLEV_LOG_DIR',
+};
+
 var _ = require('underscore');
 var express = require('express');
 var commander = require('commander');
@@ -23,7 +27,12 @@ commander.option('-d, --debug', 'Enable debug endpoints.')
 commander.parse(process.argv);
 
 var app = express();
-app.use(logger.logger);
+var log_dir = process.env[ENV.LOG];
+if (log_dir) {
+  app.use(logger.createLogger(log_dir));
+} else {
+  console.log('For full logging please set the ' + ENV.LOG + ' environmental variable.');
+}
 app.use(express.urlencoded());
 
 app.get('/', function(req, res) {

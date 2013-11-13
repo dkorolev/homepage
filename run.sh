@@ -1,4 +1,7 @@
 #!/bin/bash
+if [ -r ~/node.env ] ; then
+  source ~/node.env
+fi
 (
   cd src
   node_modules/forever/bin/forever \

@@ -10,6 +10,7 @@
     "underscore": ">=1.5.2",
     "nodemon": ">=0.7.10",
     "forever": ">=0.10.9",
-    "circular-json": ">=0.1.5"
+    "circular-json": ">=0.1.5",
+    "dateformat": "*"
   }
 }
