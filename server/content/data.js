@@ -22,6 +22,11 @@ module.exports = {
       url: 'http://www.quora.com/Dima-Korolev',
     },
     {
+      name: 'GitHub',
+      comment: 'Code I write',
+      url: 'https://github.com/dkorolev',
+    },
+    {
       name: 'Twitter',
       comment: 'Tweets I find interesting',
       url: 'https://twitter.com/UniqueDima',
