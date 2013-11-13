@@ -32,7 +32,7 @@ app.get('/', function(req, res) {
 
 if (commander.debug) {
   app.get('/kill', function(req, res) {
-    process.exit(0);
+    process.exit(1);
   });
 }
 
