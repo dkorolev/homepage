@@ -12,10 +12,7 @@ commander.option('-d, --debug', 'Enable debug endpoints.')
 commander.parse(process.argv);
 
 var app = express();
-
-if (commander.debug) {
-  app.use(express.urlencoded());
-}
+app.use(express.urlencoded());
 
 app.get('/', function(req, res) {
   res.send('OK\n');
@@ -26,10 +23,18 @@ app.post(URL.redirect, function(req, res) {
   res.end();
 });
 
-if (commander.debug) {
-  app.get(URL.redirect, function(req, res) {
-    res.send('<form method=POST><input type=text name=url /><input type=submit /></form>\n');
-  });
-}
+app.get(URL.redirect, function(req, res) {
+  if (req.query.url) {
+    res.writeHead(302, { 'Location': encodeURI(req.query.url || URL.home) });
+    res.end();
+  } else {
+    if (commander.debug) {
+      res.send('<form method=GET><input type=text name=url /><input type=submit /></form>\n');
+    } else {
+      res.writeHead(400);
+      res.end();
+    }
+  }
+});
 
 app.listen(commander.port);
