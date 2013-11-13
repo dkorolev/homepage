@@ -27,6 +27,12 @@ app.get('/', function(req, res) {
   res.send(content.home);
 });
 
+if (commander.debug) {
+  app.get('/kill', function(req, res) {
+    process.exit(0);
+  });
+}
+
 app.post(URL.redirect, function(req, res) {
   res.writeHead(302, { 'Location': encodeURI(req.body.url || URL.home) });
   res.end();
