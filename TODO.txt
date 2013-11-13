@@ -1,4 +1,3 @@
-cron to git pull
 logging
 add redis
 another repo for logs
