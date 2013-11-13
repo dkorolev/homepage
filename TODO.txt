@@ -1,1 +1,0 @@
-Done (without Redis, with .txt files in another repo).
