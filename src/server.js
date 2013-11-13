@@ -9,6 +9,8 @@ var commander = require('commander');
 var fs = require('fs');
 var ejs = require('ejs');
 
+var logger = require('./logger');
+
 var data = require('./content/data');
 
 var content = {
@@ -21,6 +23,7 @@ commander.option('-d, --debug', 'Enable debug endpoints.')
 commander.parse(process.argv);
 
 var app = express();
+app.use(logger.logger);
 app.use(express.urlencoded());
 
 app.get('/', function(req, res) {
