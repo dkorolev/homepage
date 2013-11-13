@@ -1,0 +1,9 @@
+express page
+redirects
+ejs
+forever
+cron to git pull
+logging
+add redis
+another repo for logs
+cron to fetch logs and push them
