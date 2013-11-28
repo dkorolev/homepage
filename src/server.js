@@ -7,11 +7,12 @@ var ENV = {
   LOG: 'DKOROLEV_LOG_DIR',
 };
 
-var _ = require('underscore');
-var express = require('express');
 var commander = require('commander');
-var fs = require('fs');
 var ejs = require('ejs');
+var express = require('express');
+var fs = require('fs');
+var path = require('path');
+var _ = require('underscore');
 
 var logger = require('./logger');
 
@@ -34,6 +35,9 @@ if (log_dir) {
   console.log('For full logging please set the ' + ENV.LOG + ' environmental variable.');
 }
 app.use(express.urlencoded());
+app.use(express.compress());
+console.log(path.join(__dirname, 'content/static'));
+app.use('/static', express.static(path.join(__dirname, 'content/static')));
 
 app.get('/', function(req, res) {
   res.send(content.home);
