@@ -14,7 +14,7 @@ module.exports = {
     {
       name: 'Medium',
       comment: 'Blog I write.',
-      url: 'https://medium.com/@UniqueDima',
+      url: 'https://medium.com/dima-korolev',
     },
     {
       name: 'Quora',
