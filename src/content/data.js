@@ -1,5 +1,6 @@
 module.exports = {
   name: 'Dima Korolev',
+  google_analytics_code: 'UA-46065883-1',
   profiles: [
     {
       name: 'LinkedIn',
