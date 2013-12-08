@@ -27,7 +27,7 @@
 <ul>
 <% profiles.forEach(function(e) { %>
   <% if (e.hasOwnProperty('name') && e.hasOwnProperty('comment') && e.hasOwnProperty('url')) { %>
-    <li><span class="headerLine"><a href="<%=((e.url.substr(0, 7) === 'mailto:') ? '' : '/r?url=') + e.url%>"><%=e.name%></a>:</span> <%=e.comment%></li>
+    <li><span class="headerLine"><a href="<%=((e.url.substr(0, 7) === 'mailto:') ? '' : '/r?url=') + e.url%>" onclick="_gaq.push(['_trackEvent', 'Click', 'Link', '<%=e.url%>']);"><%=e.name%></a>:</span> <%=e.comment%></li>
   <% } %>
 <% }); %>
 </ul>
