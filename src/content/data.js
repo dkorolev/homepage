@@ -13,14 +13,14 @@ module.exports = {
       url: 'https://www.facebook.com/dima.korolev.16',
     },
     {
-      name: 'Medium',
-      comment: 'Blog I write.',
-      url: 'https://medium.com/dima-korolev',
-    },
-    {
       name: 'Quora',
       comment: 'Questions I ask and answer.',
       url: 'http://dkorolev.quora.com/My-Answers',
+    },
+    {
+      name: 'Medium',
+      comment: 'Blog I write.',
+      url: 'https://medium.com/dima-korolev',
     },
     {
       name: 'GitHub',
