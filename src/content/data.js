@@ -20,7 +20,7 @@ module.exports = {
     {
       name: 'Quora',
       comment: 'Questions I ask and answer.',
-      url: 'http://www.quora.com/Dima-Korolev',
+      url: 'http://dkorolev.quora.com/My-Answers',
     },
     {
       name: 'GitHub',
