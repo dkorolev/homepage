@@ -3,14 +3,14 @@ module.exports = {
   google_analytics_code: 'UA-46065883-1',
   profiles: [
     {
-      name: 'Quora',
-      comment: 'Questions I ask and answer.',
-      url: 'http://dkorolev.quora.com/My-Answers',
-    },
-    {
       name: 'Medium',
       comment: 'Blog I write.',
       url: 'https://medium.com/dima-korolev',
+    },
+    {
+      name: 'Quora',
+      comment: 'Questions I ask and answer.',
+      url: 'http://dkorolev.quora.com/My-Answers',
     },
     {
       name: 'Twitter',
@@ -26,6 +26,11 @@ module.exports = {
       name: 'LinkedIn',
       comment: 'Professional profile.',
       url: 'http://www.linkedin.com/in/dimakorolev',
+    },
+    {
+      name: 'Google+',
+      comment: 'Have yet to figure out.',
+      url: 'https://plus.google.com/+DimaKorolevUnique',
     },
     {
       name: 'GitHub',
