@@ -30,7 +30,7 @@ module.exports = {
     {
       name: 'Google+',
       comment: 'Have yet to figure out.',
-      url: 'https://plus.google.com/+DimaKorolevUnique',
+      url: 'http://bit.ly/1f1IuFV',
     },
     {
       name: 'GitHub',
