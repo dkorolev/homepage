@@ -5,27 +5,27 @@ module.exports = {
     {
       name: 'Medium',
       comment: 'Blog I write.',
-      url: 'https://medium.com/dima-korolev',
+      url: 'http://bit.ly/1i3t0ip',
     },
     {
       name: 'Quora',
       comment: 'Questions I ask and answer.',
-      url: 'http://dkorolev.quora.com/My-Answers',
+      url: 'http://bit.ly/1e1Popy',
     },
     {
       name: 'Twitter',
       comment: 'Tweets I find interesting.',
-      url: 'https://twitter.com/UniqueDima',
+      url: 'http://bit.ly/1i3t4ib',
     },
     {
       name: 'Facebook',
       comment: 'Personal profile.',
-      url: 'https://www.facebook.com/dima.korolev.16',
+      url: 'http://on.fb.me/1crFcqZ',
     },
     {
       name: 'LinkedIn',
       comment: 'Professional profile.',
-      url: 'http://www.linkedin.com/in/dimakorolev',
+      url: 'http://linkd.in/1f1IS7k',
     },
     {
       name: 'Google+',
@@ -35,7 +35,7 @@ module.exports = {
     {
       name: 'GitHub',
       comment: 'Code I write.',
-      url: 'https://github.com/dkorolev',
+      url: 'http://bit.ly/Koowrq',
     },
     {
       name: 'e-mail',
