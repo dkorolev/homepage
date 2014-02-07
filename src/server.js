@@ -68,4 +68,9 @@ app.get(URL.redirect, function(req, res) {
   }
 });
 
+app.get('/blog', function(req, res) {
+  res.writeHead(302, { 'Location': encodeURI('http://medium.com/dima-korolev') });
+  res.end();
+});
+
 app.listen(commander.port);
