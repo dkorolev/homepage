@@ -73,4 +73,9 @@ app.get('/blog', function(req, res) {
   res.end();
 });
 
+app.get('/blog/chinese/invited-technical-cofounder', function(req, res) {
+  res.writeHead(302, { 'Location': encodeURI('http://bit.ly/1kC7fKj') });
+  res.end();
+});
+
 app.listen(commander.port);
