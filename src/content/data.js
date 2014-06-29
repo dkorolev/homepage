@@ -10,7 +10,7 @@ module.exports = {
     {
       name: 'Quora',
       comment: 'Questions I ask and answer.',
-      url: 'http://bit.ly/1e1Popy',
+      url: 'http://bit.ly/1iJQcXN',
     },
     {
       name: 'Twitter',
