@@ -1,0 +1,70 @@
+==================================================================
+https://keybase.io/dkorolev
+--------------------------------------------------------------------
+
+I hereby claim:
+
+  * I am an admin of http://dimakorolev.com
+  * I am dkorolev (https://keybase.io/dkorolev) on keybase.
+  * I have a public key with fingerprint 0127 DF62 0BDD E3BE C7C9  7BFE A4E7 FF85 790C A9CF
+
+To claim this, I am signing this object:
+
+{
+    "body": {
+        "key": {
+            "fingerprint": "0127df620bdde3bec7c97bfea4e7ff85790ca9cf",
+            "host": "keybase.io",
+            "key_id": "a4e7ff85790ca9cf",
+            "uid": "862c69d05290fcba92a3f00f70d46500",
+            "username": "dkorolev"
+        },
+        "service": {
+            "hostname": "dimakorolev.com",
+            "protocol": "http:"
+        },
+        "type": "web_service_binding",
+        "version": 1
+    },
+    "ctime": 1414470332,
+    "expire_in": 157680000,
+    "prev": "4ec6fee8dfafb5f5f4a6a797df7f09797a1965a7c3eef8ee389f3b073e7137d3",
+    "seqno": 4,
+    "tag": "signature"
+}
+
+with the aforementioned key, yielding the PGP signature:
+
+-----BEGIN PGP MESSAGE-----
+Version: GnuPG v1.4.11 (GNU/Linux)
+
+owGbwMvMwMS45Pn/1kqelecZTx/4msQQ4i91vFopKT+lUsmqWik7FUylZealpxYV
+FGXmlShZKRkYGpmnpJkZGSSlpKQaJ6UmmydbmielpSaapJqnpVmYmlsaJCdaJqcp
+6Shl5BeDdACNSUosTtXLzAeKATnxmSlAUSzqS8ESFmZGyWaWKQamRpYGaclJiZZG
+icZpBgZp5gYpJmamBgYghcWpRXmJualA1SnZ+UX5OallSrU6SkDRsszkVJCbQVbD
+VGTmJkIV6SXn5wK1FxTll+Qn5+cAJTNKSgqsQHpLKgtAistTk+KhxsQnZealAL0O
+1FCWWlScmZ+nZGUIVJlckgky19DE0MTE3MDY2EhHKbWiILMoNT4TpMLU3MzCAAhA
+1gCdZaVkkppslpaaapGSlpiWZJpmmmaSaJZobgkMRPM0A0sgI9HQ0sw00TzZODU1
+zSI11djCMs04ycDcONXc0Ng8xVgJ5LHCvHwlKxOgMxPTgUYWZ6bnJZaUFqUq1XJ1
+MsmwMDAyMbCxMoFij4GLUwAWp5Mi+P/pa8kddNTPnaAgymjX/T7h+ArJ6J+BDv8e
+TnrrrJKwh48hfCvrK57ztzTWveIwPC855TXntgfpG0KddFZ4dPYtn8G06z3Psm7z
+7UXNN9Y/fzXh9Y+ty7hfrFRUM/cNtlY3LBWdx3SNf9W2NdG2K/5wLY6ZxJl4JaTw
+TfSH5a/yet+wv/K7s7GFbfb+bM319rFHP3w/qOG8etJ8we9W+5fOn3jY/g77MQ0O
+lo63D2XS/mSIM3S6zxBW3CJt0taTOkOBt7P0aAVD4GXTinL/fcvkL96NDNBuDvaS
+X1/UMc3TM/KZ7eP5Lz8cVn9YuHXivdyUeCaf64rywZx/LkVvbH/x2DfwyqdMx9JT
+u7gXrsp96HY655xkusjs5Zdt+3ReSvzgcNtjcfKLuZ6OVibnTpU/J09ON87eG//k
+qHggj8GVRJuj9Qt/8k0L3jZ5PZ+DoX3sGwuOuS+TNJ784zBaseC19KGTkYeWZu/+
+Ks/4j21hjtn6nW75Ivm1L2M3VvR625fN2mez2IdT6bPhp6331/+69VT17Kzt1W2T
+E4625GZOjFvYEPk5WNU4hkFB0dTlwU7nF1/ENeedvu/YYljQm7bmjNer+CaWhdr/
+umquRfBdion6uqQ5dIJbkQ+vtbnsq+3f5O7tzCp0cRW+zK3zOeLKfifF18xPV99v
+Uu264Hx3voCSeuf6j9zvDu56oHtCwadD4PE113KHT5lmc4IA
+=6X0z
+-----END PGP MESSAGE-----
+
+And finally, I am proving ownership of this host by posting or
+appending to this document.
+
+View my publicly-auditable identity here: https://keybase.io/dkorolev
+
+==================================================================
+

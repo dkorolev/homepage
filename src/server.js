@@ -38,6 +38,7 @@ app.use(express.urlencoded());
 app.use(express.compress());
 console.log(path.join(__dirname, 'content/static'));
 app.use('/static', express.static(path.join(__dirname, 'content/static')));
+app.use('/.well-known', express.static(path.join(__dirname, 'content/static')));
 
 app.get('/', function(req, res) {
   res.send(content.home);
