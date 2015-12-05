@@ -20,7 +20,7 @@ module.exports = {
     {
       name: 'Facebook',
       comment: 'Personal profile.',
-      url: 'http://on.fb.me/1crFcqZ',
+      url: 'http://on.fb.me/1Q7y09G',  // 'http://on.fb.me/1crFcqZ',
     },
     {
       name: 'LinkedIn',
