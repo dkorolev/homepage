@@ -1,0 +1,13 @@
+startup_message off
+defscrollback 1000000
+
+bindkey -k k7 screen
+bindkey -k k4 title
+bindkey -k k5 prev
+bindkey -k k6 next
+bindkey -k k8 detach
+bindkey -k k9 windowlist -b
+
+caption string "%?%F%{= Bk}%? %C%A %D %d-%m-%Y %{= kB} %t%= %?%F%{= Bk}%:%{= wk}%? %n "
+hardstatus alwayslastline
+hardstatus string '%{= kG}[ %{G}%H %{g}][%= %{= kw}%?%-Lw%?%{r}(%{W}%n*%f%t%?(%u)%?%{r})%{w}%?%+Lw%?%?%= %{g}][%{B} %d/%m %{W}%c %{g}]'
