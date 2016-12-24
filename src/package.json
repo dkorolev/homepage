@@ -4,13 +4,14 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
-    "express": ">=3.4.4",
-    "commander": ">=2.0.0",
-    "ejs": ">=0.8.4",
-    "underscore": ">=1.5.2",
-    "nodemon": ">=0.7.10",
-    "forever": ">=0.10.9",
-    "circular-json": ">=0.1.5",
-    "dateformat": "*"
+    "express": "3.4.4",
+    "body-parser": "1.15.2",
+    "commander": "2.0.0",
+    "ejs": "0.8.4",
+    "underscore": "1.5.2",
+    "nodemon": "0.7.10",
+    "forever": "0.10.9",
+    "circular-json": "0.1.5",
+    "dateformat": "1.0.6-1.2.3"
   }
 }

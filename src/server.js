@@ -10,6 +10,8 @@ var ENV = {
 var commander = require('commander');
 var ejs = require('ejs');
 var express = require('express');
+var bodyParser = require('body-parser');
+
 var fs = require('fs');
 var path = require('path');
 var _ = require('underscore');
@@ -34,8 +36,8 @@ if (log_dir) {
 } else {
   console.log('For full logging please set the ' + ENV.LOG + ' environmental variable.');
 }
-app.use(express.urlencoded());
-app.use(express.compress());
+app.use(bodyParser.urlencoded({ extended: false }));
+// app.use(express.compress());
 console.log(path.join(__dirname, 'content/static'));
 app.use('/static', express.static(path.join(__dirname, 'content/static')));
 app.use('/.well-known', express.static(path.join(__dirname, 'content/static')));
