@@ -33,11 +33,6 @@ module.exports = {
       url: 'http://bit.ly/1iJQcXN',
     },
     {
-      name: 'Google+',
-      comment: 'Have yet to figure out.',
-      url: 'http://bit.ly/1f1IuFV',
-    },
-    {
       name: 'e-mail',
       comment: 'Best way to reach me.',
       url: 'mailto:dmitry.korolev@gmail.com',
