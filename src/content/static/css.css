@@ -21,8 +21,7 @@ html, body {
 
 body {
   background-image: url('background.jpg');
-  background-repeat: no-repeat;
-  background-size: 100%;
+  background-size: cover;
 }
 
 ul {
