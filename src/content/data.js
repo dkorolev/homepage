@@ -20,7 +20,7 @@ module.exports = {
     {
       name: 'Medium',
       comment: 'Blog I have.',
-      url: 'http://bit.ly/1i3t0ip',
+      url: 'http://bit.ly/2jz7ht9',
     },
     {
       name: 'Twitter',
