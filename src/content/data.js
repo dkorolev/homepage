@@ -13,6 +13,11 @@ module.exports = {
       url: 'http://linkd.in/1f1IS7k',
     },
     {
+      name: 'Telegram',
+      comment: 'Microblog.'
+      url: 'http://bit.ly/boremeno',
+    },
+    {
       name: 'Facebook',
       comment: 'Personal profile.',
       url: 'http://on.fb.me/1Q7y09G',  // 'http://on.fb.me/1crFcqZ',
