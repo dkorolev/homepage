@@ -14,7 +14,7 @@ module.exports = {
     },
     {
       name: 'Telegram',
-      comment: 'Microblog.'
+      comment: 'Microblog.',
       url: 'http://bit.ly/boremeno',
     },
     {
