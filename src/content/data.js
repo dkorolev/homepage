@@ -15,7 +15,7 @@ module.exports = {
     {
       name: 'Telegram',
       comment: 'Microblog.',
-      url: 'http://bit.ly/boremeno',
+      url: 'http://bit.ly/readboremeno',
     },
     {
       name: 'Facebook',
