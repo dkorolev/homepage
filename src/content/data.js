@@ -5,17 +5,17 @@ module.exports = {
     {
       name: 'GitHub',
       comment: 'Code I write.',
-      url: 'http://bit.ly/Koowrq',
+      url: 'https://tinyurl.com/dkorolev-github',
     },
     {
       name: 'LinkedIn',
       comment: 'Professional profile.',
-      url: 'http://linkd.in/1f1IS7k',
+      url: 'https://tinyurl.com/dkorolev-linkedin',
     },
     {
       name: 'Telegram',
       comment: 'Microblog.',
-      url: 'http://bit.ly/readboremeno',
+      url: 'https://tinyurl.com/dkorolev-telegram',
     },
     {
       name: 'Facebook',
@@ -23,14 +23,19 @@ module.exports = {
       url: 'http://on.fb.me/1Q7y09G',  // 'http://on.fb.me/1crFcqZ',
     },
     {
+      name: 'Substack',
+      comment: 'Blog I have.',
+      url: 'https://tinyurl.com/dkorolev-substack',
+    },
+    {
       name: 'Medium',
       comment: 'Blog I have.',
-      url: 'http://bit.ly/2jz7ht9',
+      url: 'https://tinyurl.com/dkorolev-medium',
     },
     {
       name: 'Twitter',
       comment: 'Tweets I find interesting.',
-      url: 'http://bit.ly/1i3t4ib',
+      url: 'https://tinyurl.com/dkorolev-twitter',
     },
     {
       name: 'Quora',
