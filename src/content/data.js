@@ -13,6 +13,11 @@ module.exports = {
       url: 'https://tinyurl.com/dkorolev-linkedin',
     },
     {
+      name: 'SDMeetup',
+      comment: 'SysDesign Meetup.',
+      url: 'https://tinyurl.com/dkorolev-dsm',
+    },
+    {
       name: 'Telegram',
       comment: 'Microblog.',
       url: 'https://tinyurl.com/dkorolev-telegram',
@@ -26,6 +31,11 @@ module.exports = {
       name: 'Substack',
       comment: 'Blog I have.',
       url: 'https://tinyurl.com/dkorolev-substack',
+    },
+    {
+      name: 'YouTube',
+      comment: 'SysDesign Meetup.',
+      url: 'https://tinyurl.com/dkorolev-youtube',
     },
     {
       name: 'Medium',
