@@ -49,3 +49,11 @@ ul li {
 .headline {
   font-family:impact;
 }
+
+a {
+  color: blue;
+}
+
+a:visited {
+  color: blue;
+}
