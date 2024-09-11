@@ -3,59 +3,59 @@ module.exports = {
   google_analytics_code: 'UA-46065883-1',
   profiles: [
     {
-      name: 'GitHub',
+      name: 'github',
       comment: 'Code I write.',
       url: 'https://tinyurl.com/dkorolev-github',
     },
     {
-      name: 'LinkedIn',
+      name: 'linkedin',
       comment: 'Professional profile.',
       url: 'https://tinyurl.com/dkorolev-linkedin',
     },
     {
-      name: 'SDMeetup',
+      name: 'meetup',
       comment: 'SysDesign Meetup.',
       url: 'https://tinyurl.com/dkorolev-dsm',
     },
     {
-      name: 'Telegram',
+      name: 'telegram',
       comment: 'Microblog.',
       url: 'https://tinyurl.com/dkorolev-telegram',
     },
     {
-      name: 'Facebook',
+      name: 'facebook',
       comment: 'Personal profile.',
       url: 'http://on.fb.me/1Q7y09G',  // 'http://on.fb.me/1crFcqZ',
     },
     {
-      name: 'Substack',
+      name: 'substack',
       comment: 'Blog I have.',
       url: 'https://tinyurl.com/dkorolev-substack',
     },
     {
-      name: 'YouTube',
+      name: 'youtube',
       comment: 'SysDesign Meetup.',
       url: 'https://tinyurl.com/dkorolev-youtube',
     },
     {
-      name: 'Medium',
+      name: 'medium',
       comment: 'Blog I have.',
       url: 'https://tinyurl.com/dkorolev-medium',
     },
     {
-      name: 'Twitter',
+      name: 'twitter',
       comment: 'Tweets I find interesting.',
       url: 'https://tinyurl.com/dkorolev-twitter',
     },
     {
-      name: 'Quora',
+      name: 'quora',
       comment: 'Questions I ask and answer.',
       url: 'http://bit.ly/1iJQcXN',
     },
     {
-      name: 'e-mail',
+      name: 'email',
       comment: 'Best way to reach me.',
-      url: 'mailto:dmitry.korolev@gmail.com',
+      url: 'mailto:dima@current.ai',
     },
   ],
 };
