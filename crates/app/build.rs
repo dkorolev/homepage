@@ -1,5 +1,4 @@
 fn main() {
-    println!("cargo:rerun-if-changed=templates/");
     println!("cargo:rerun-if-changed=../../.git/HEAD");
     println!("cargo:rerun-if-changed=../../.git/refs/");
     let hash = std::process::Command::new("git")

@@ -234,6 +234,10 @@ fn render_home(debug: bool) -> String {
         href, name
       ));
     }
+    html.push_str(&format!(
+      "    <li><span class=\"headerLine\" style=\"font-family:ui-monospace,monospace;font-size:0.75rem;color:rgba(0,0,0,0.35);padding-top:4px;\">{}</span></li>\n",
+      env!("GIT_HASH")
+    ));
   }
 
   html.push_str("</ul>\n");

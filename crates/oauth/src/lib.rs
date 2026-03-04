@@ -145,6 +145,7 @@ pub fn build_state(base_url: &str) -> Arc<OAuthState> {
 #[template(path = "login.html")]
 struct LoginTemplate {
   providers: Vec<ProviderInfo>,
+  git_hash: &'static str,
 }
 
 struct ProviderInfo {
@@ -163,6 +164,7 @@ struct LoginResultTemplate {
   raw_json: String,
   error_message: String,
   session_id: String,
+  git_hash: &'static str,
 }
 
 #[derive(Template)]
@@ -171,6 +173,7 @@ struct LogoutResultTemplate {
   provider_name: String,
   revoke_ok: bool,
   revoke_detail: String,
+  git_hash: &'static str,
 }
 
 // -- Route handlers.
@@ -199,7 +202,7 @@ async fn login_page(State(state): State<Arc<OAuthState>>) -> impl IntoResponse {
     .filter(|p| state.providers.contains_key(p))
     .map(|p| ProviderInfo { slug: p.slug(), name: p.display_name() })
     .collect();
-  let t = LoginTemplate { providers };
+  let t = LoginTemplate { providers, git_hash: env!("GIT_HASH") };
   match t.render() {
     Ok(html) => Html(html).into_response(),
     Err(e) => {
@@ -379,6 +382,7 @@ async fn oauth_callback(
     raw_json,
     error_message: String::new(),
     session_id,
+    git_hash: env!("GIT_HASH"),
   };
   match t.render() {
     Ok(html) => Html(html).into_response(),
@@ -399,6 +403,7 @@ fn render_error(message: &str, provider_name: &str) -> axum::response::Response 
     raw_json: String::new(),
     error_message: message.to_string(),
     session_id: String::new(),
+    git_hash: env!("GIT_HASH"),
   };
   match t.render() {
     Ok(html) => Html(html).into_response(),
@@ -486,7 +491,7 @@ async fn logout(State(state): State<Arc<OAuthState>>, Form(form): Form<LogoutFor
     ("unknown".to_string(), false, "Session not found (expired or already logged out).".to_string())
   };
 
-  let t = LogoutResultTemplate { provider_name, revoke_ok, revoke_detail };
+  let t = LogoutResultTemplate { provider_name, revoke_ok, revoke_detail, git_hash: env!("GIT_HASH") };
   match t.render() {
     Ok(html) => Html(html).into_response(),
     Err(e) => {

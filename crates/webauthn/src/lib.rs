@@ -120,12 +120,14 @@ fn append_credential(state: &AppState, passkey: &Passkey) {
 struct PasskeyTemplate {
   title: String,
   message: String,
+  git_hash: &'static str,
 }
 
 async fn passkey_page() -> impl IntoResponse {
   let t = PasskeyTemplate {
     title: "Passkey".to_string(),
     message: "Authenticate with a passkey or register a new one.".to_string(),
+    git_hash: env!("GIT_HASH"),
   };
   match t.render() {
     Ok(html) => Html(html).into_response(),
