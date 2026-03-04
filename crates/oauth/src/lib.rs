@@ -76,7 +76,7 @@ impl Provider {
     match self {
       Self::Google => "openid email profile",
       Self::GitHub => "read:user user:email",
-      Self::TopSecret => "openid read write",
+      Self::TopSecret => "openid profile",
     }
   }
 }
