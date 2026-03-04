@@ -158,11 +158,52 @@ impl HttpTransport {
         if content_type.contains("application/json") {
             self.handle_json_stream(response).await
         } else if content_type.contains("text/event-stream") {
-            // Should not happen in send_request, but handle gracefully
-            Err(TransportError::Http("Unexpected SSE response in send_request".to_string()).into())
+            self.handle_sse_response(response).await
         } else {
             Err(TransportError::Http(format!("Unsupported content type: {}", content_type)).into())
         }
+    }
+
+    /// Handle SSE response body (server may respond with text/event-stream to POST)
+    async fn handle_sse_response(&mut self, response: Response) -> McpClientResult<Value> {
+        if self.event_sender.is_none() {
+            let (tx, _rx) = mpsc::unbounded_channel();
+            self.event_sender = Some(tx);
+        }
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| TransportError::Http(format!("SSE body read: {}", e)))?;
+        let body = String::from_utf8_lossy(&bytes);
+        let mut buffer = body.as_ref();
+        while let Some(end) = buffer.find("\n\n") {
+            let event_text = &buffer[..end];
+            buffer = &buffer[end + 2..];
+            let mut data = String::new();
+            for line in event_text.lines() {
+                if let Some(data_value) = line.strip_prefix("data: ") {
+                    if !data.is_empty() {
+                        data.push('\n');
+                    }
+                    data.push_str(data_value);
+                }
+            }
+            if data.is_empty() {
+                continue;
+            }
+            if let Ok(json) = serde_json::from_str::<Value>(&data) {
+                if json.get("id").is_some() && (json.get("result").is_some() || json.get("error").is_some()) {
+                    self.update_stats(|stats| stats.responses_received += 1);
+                    return Ok(json);
+                }
+                if json.get("method").is_some() {
+                    if let Some(ref tx) = self.event_sender {
+                        let _ = tx.send(ServerEvent::Notification(json));
+                    }
+                }
+            }
+        }
+        Err(TransportError::Http("SSE stream had no JSON-RPC result/error frame".to_string()).into())
     }
 
     /// Handle JSON stream (works for both single responses and chunked streaming)
@@ -345,11 +386,7 @@ impl HttpTransport {
         let response_json = if content_type.contains("application/json") {
             self.handle_json_stream(response).await?
         } else if content_type.contains("text/event-stream") {
-            // Should not happen in send_request_with_headers, but handle gracefully
-            return Err(TransportError::Http(
-                "Unexpected SSE response in send_request_with_headers".to_string(),
-            )
-            .into());
+            self.handle_sse_response(response).await?
         } else {
             return Err(TransportError::Http(format!(
                 "Unsupported content type: {}",
