@@ -348,7 +348,16 @@ async function api(method, path, body) {
   }
 }
 
+function clearLogs() {
+  debugLines.length = 0;
+  const logEl = $('#log');
+  if (logEl) logEl.innerHTML = '';
+  const debugEl = $('#debug-log-output');
+  if (debugEl) debugEl.textContent = '';
+}
+
 async function init() {
+  clearLogs();
   const urlInput = $('#mcp-url');
   urlInput.addEventListener('keydown', function(ev) {
     if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
@@ -360,12 +369,9 @@ async function init() {
   $('#server-url').textContent = st.mcp_url || 'Enter MCP server URL';
   if (st.mcp_url) urlInput.value = st.mcp_url;
   if (st.git_hash) $('#git-hash').textContent = st.git_hash;
-  if (st.connected) {
-    connectClicked = true;
-    onConnected(st);
-  } else {
-    log(st.mcp_url ? 'Ready. Click Connect.' : 'Enter MCP server URL above and click Connect.');
-  }
+  $('#status-badge').textContent = 'ready';
+  $('#status-badge').className = 'badge badge-warn';
+  log(st.mcp_url ? 'Ready. Click Connect.' : 'Enter MCP server URL above and click Connect.');
 }
 
 let authPollTimer = null;
