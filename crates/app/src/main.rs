@@ -230,7 +230,7 @@ fn render_home(debug: bool) -> String {
   if debug {
     for (href, name) in [("/piarun", "Passkey"), ("/login", "OAuth2"), ("/mcpclient", "MCP Client")] {
       html.push_str(&format!(
-        "    <li><span class=\"headerLine\"><a href=\"{}\" class=\"debug\">{}</a></span></li>\n",
+        "    <li><span class=\"headerLine\"><a href=\"{}\" class=\"debug\" style=\"color: #ff8c00 !important;\">{}</a></span></li>\n",
         href, name
       ));
     }
