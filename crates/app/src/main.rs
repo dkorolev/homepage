@@ -29,10 +29,6 @@ struct Args {
   #[arg(long, default_value = "443")]
   port_https: u16,
 
-  /// Enable debug endpoints.
-  #[arg(short, long)]
-  debug: bool,
-
   /// Let's Encrypt directory: FQDN = last path component, must contain fullchain.pem and privkey.pem.
   #[arg(long, required_unless_present = "fqdn")]
   letsencrypt: Option<PathBuf>,
@@ -260,23 +256,30 @@ struct RedirectForm {
   url: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct IndexQuery {
+  debug: Option<String>,
+}
+
 #[derive(Clone)]
 struct AppState {
   home_html: Arc<String>,
-  debug: bool,
+  home_html_debug: Arc<String>,
 }
 
 // -- Route handlers.
 
-async fn index(State(state): State<AppState>) -> impl IntoResponse {
-  Html(state.home_html.as_ref().clone())
+async fn index(Query(query): Query<IndexQuery>, State(state): State<AppState>) -> impl IntoResponse {
+  if query.debug.is_some() {
+    Html(state.home_html_debug.as_ref().clone())
+  } else {
+    Html(state.home_html.as_ref().clone())
+  }
 }
 
-async fn redirect_get(Query(query): Query<RedirectQuery>, State(state): State<AppState>) -> impl IntoResponse {
+async fn redirect_get(Query(query): Query<RedirectQuery>) -> impl IntoResponse {
   if let Some(ref url) = query.url {
     Redirect::temporary(url).into_response()
-  } else if state.debug {
-    Html("<form method=GET><input type=text name=url /><input type=submit /></form>\n").into_response()
   } else {
     StatusCode::BAD_REQUEST.into_response()
   }
@@ -313,10 +316,6 @@ async fn host_redirects(headers: HeaderMap, request: Request, next: middleware::
     }
   }
   next.run(request).await
-}
-
-async fn kill() -> StatusCode {
-  std::process::exit(1);
 }
 
 // -- HTTP -> HTTPS redirect, following local_ssl_rust.
@@ -364,7 +363,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     .init();
 
   let args = Args::parse();
-  let debug = args.debug;
   let port_http = args.port_http;
   let port_https = args.port_https;
 
@@ -414,22 +412,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   };
   tracing::info!("static dir: {}", static_dir.display());
 
-  let home_html = render_home(debug);
-  let state = AppState { home_html: Arc::new(home_html), debug };
+  let home_html = render_home(false);
+  let home_html_debug = render_home(true);
+  let state = AppState { home_html: Arc::new(home_html), home_html_debug: Arc::new(home_html_debug) };
 
   // -- Build the app router.
-  let mut app = Router::new()
+  let app = Router::new()
     .route("/", get(index))
     .route("/r", get(redirect_get).post(redirect_post))
     .route("/blog", get(blog_redirect))
     .route("/blog/chinese/invited-technical-cofounder", get(blog_chinese_redirect))
-    .route("/zoom", get(zoom_redirect));
-
-  if debug {
-    app = app.route("/kill", get(kill));
-  }
-
-  let app = app
+    .route("/zoom", get(zoom_redirect))
     .nest_service("/static", ServeDir::new(&static_dir))
     .nest_service("/.well-known", ServeDir::new(&static_dir))
     .with_state(state)
