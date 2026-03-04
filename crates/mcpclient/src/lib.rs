@@ -228,6 +228,8 @@ struct StatusResponse {
   server_info: Option<serde_json::Value>,
   capabilities: Option<serde_json::Value>,
   mcp_url: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  git_hash: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -273,6 +275,7 @@ async fn api_status(State(state): State<McpClientState>) -> Json<StatusResponse>
     server_info,
     capabilities,
     mcp_url: inner.mcp_url.clone(),
+    git_hash: Some(env!("GIT_HASH")),
   })
 }
 

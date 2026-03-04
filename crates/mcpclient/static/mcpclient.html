@@ -154,6 +154,7 @@
   <h1>MCP Client</h1>
   <span id="server-url"></span>
   <span id="status-badge" class="badge badge-warn">connecting…</span>
+  <span id="git-hash" style="font-family:var(--mono);font-size:12px;color:var(--muted);margin-left:auto;"></span>
 </header>
 
 <main>
@@ -358,6 +359,7 @@ async function init() {
   const st = await api('GET', '/status');
   $('#server-url').textContent = st.mcp_url || 'Enter MCP server URL';
   if (st.mcp_url) urlInput.value = st.mcp_url;
+  if (st.git_hash) $('#git-hash').textContent = st.git_hash;
   if (st.connected) {
     connectClicked = true;
     onConnected(st);
