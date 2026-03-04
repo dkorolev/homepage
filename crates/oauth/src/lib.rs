@@ -2,10 +2,10 @@
 
 use askama::Template;
 use axum::{
-  extract::{Path, Query, State},
+  extract::{Form, Path, Query, State},
   http::StatusCode,
   response::{Html, IntoResponse, Redirect},
-  routing::get,
+  routing::{get, post},
   Router,
 };
 use serde::Deserialize;
@@ -92,9 +92,15 @@ struct PendingAuth {
   provider: Provider,
 }
 
+struct SessionInfo {
+  provider: Provider,
+  access_token: String,
+}
+
 pub struct OAuthState {
   providers: HashMap<Provider, ProviderConfig>,
   pending: Arc<RwLock<HashMap<String, PendingAuth>>>,
+  sessions: Arc<RwLock<HashMap<String, SessionInfo>>>,
   http_client: reqwest::Client,
   base_url: String,
 }
@@ -127,6 +133,7 @@ pub fn build_state(base_url: &str) -> Arc<OAuthState> {
   Arc::new(OAuthState {
     providers,
     pending: Arc::new(RwLock::new(HashMap::new())),
+    sessions: Arc::new(RwLock::new(HashMap::new())),
     http_client: reqwest::Client::new(),
     base_url: base_url.to_string(),
   })
@@ -155,6 +162,7 @@ struct LoginResultTemplate {
   avatar_url: String,
   raw_json: String,
   error_message: String,
+  session_id: String,
 }
 
 // -- Route handlers.
@@ -343,6 +351,13 @@ async fn oauth_callback(
 
   tracing::info!("OAuth login: {} via {} ({})", name, provider.display_name(), email);
 
+  // Store session so logout can revoke the grant.
+  let session_id = uuid::Uuid::new_v4().to_string();
+  state.sessions.write().await.insert(
+    session_id.clone(),
+    SessionInfo { provider, access_token },
+  );
+
   let t = LoginResultTemplate {
     success: true,
     provider_name: provider.display_name().to_string(),
@@ -351,6 +366,7 @@ async fn oauth_callback(
     avatar_url: avatar,
     raw_json,
     error_message: String::new(),
+    session_id,
   };
   match t.render() {
     Ok(html) => Html(html).into_response(),
@@ -370,6 +386,7 @@ fn render_error(message: &str, provider_name: &str) -> axum::response::Response 
     avatar_url: String::new(),
     raw_json: String::new(),
     error_message: message.to_string(),
+    session_id: String::new(),
   };
   match t.render() {
     Ok(html) => Html(html).into_response(),
@@ -380,6 +397,63 @@ fn render_error(message: &str, provider_name: &str) -> axum::response::Response 
   }
 }
 
+// -- Logout: revoke provider grant so next login requires full re-auth.
+
+#[derive(Deserialize)]
+struct LogoutForm {
+  session_id: String,
+}
+
+async fn logout(State(state): State<Arc<OAuthState>>, Form(form): Form<LogoutForm>) -> impl IntoResponse {
+  let session = state.sessions.write().await.remove(&form.session_id);
+  if let Some(session) = session {
+    let config = state.providers.get(&session.provider);
+    if let Some(config) = config {
+      match session.provider {
+        Provider::GitHub => {
+          // Revoke the entire OAuth app grant so user must re-authorize.
+          match state
+            .http_client
+            .delete(format!(
+              "https://api.github.com/applications/{}/grant",
+              config.client_id
+            ))
+            .basic_auth(&config.client_id, Some(&config.client_secret))
+            .header("Accept", "application/json")
+            .header("User-Agent", "homepage-oauth/1.0")
+            .json(&serde_json::json!({ "access_token": session.access_token }))
+            .send()
+            .await
+          {
+            Ok(resp) => tracing::info!(status = %resp.status(), "revoked GitHub OAuth grant"),
+            Err(e) => tracing::warn!(error = %e, "failed to revoke GitHub OAuth grant"),
+          }
+        }
+        Provider::Google => {
+          // Google: POST to revoke endpoint.
+          match state
+            .http_client
+            .post(format!(
+              "https://oauth2.googleapis.com/revoke?token={}",
+              urlencod(&session.access_token)
+            ))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .send()
+            .await
+          {
+            Ok(resp) => tracing::info!(status = %resp.status(), "revoked Google OAuth token"),
+            Err(e) => tracing::warn!(error = %e, "failed to revoke Google OAuth token"),
+          }
+        }
+        Provider::TopSecret => {
+          tracing::info!("cleared topsecret session (no revoke API)");
+        }
+      }
+    }
+  }
+  Redirect::to("/login").into_response()
+}
+
 // -- Router.
 
 pub fn router(state: Arc<OAuthState>) -> Router {
@@ -388,6 +462,7 @@ pub fn router(state: Arc<OAuthState>) -> Router {
     .route("/login/debug", get(login_debug))
     .route("/login/:provider", get(start_oauth))
     .route("/login/:provider/callback", get(oauth_callback))
+    .route("/logout", post(logout))
     .with_state(state)
 }
 

@@ -189,7 +189,10 @@
     <p class="error-message">{{ error_message }}</p>
     {% endif %}
     {% if success %}
-    <a href="/login" class="logout-btn">Logout</a>
+    <form action="/logout" method="post" style="display:inline">
+      <input type="hidden" name="session_id" value="{{ session_id }}">
+      <button type="submit" class="logout-btn">Logout</button>
+    </form>
     {% else %}
     <a href="/login" class="back-link">&larr; Back to login</a>
     {% endif %}
