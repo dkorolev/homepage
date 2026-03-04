@@ -161,7 +161,7 @@ const PROFILES: &[Profile] = &[
 
 // -- Pre-render the homepage HTML at startup.
 
-fn render_home() -> String {
+fn render_home(debug: bool) -> String {
   let mut profile_items = String::new();
   for p in PROFILES {
     let href = if p.url.starts_with("mailto:") { p.url.to_string() } else { format!("/r?url={}", p.url) };
@@ -236,6 +236,17 @@ fn render_home() -> String {
   // Profile links.
   html.push_str("<ul>\n");
   html.push_str(&profile_items);
+
+  // Debug links.
+  if debug {
+    for (href, name) in [("/piarun", "Passkey"), ("/login", "OAuth2"), ("/mcpclient", "MCP Client")] {
+      html.push_str(&format!(
+        "    <li><span class=\"headerLine\"><a href=\"{}\" class=\"debug\">{}</a></span></li>\n",
+        href, name
+      ));
+    }
+  }
+
   html.push_str("</ul>\n");
 
   // Close body.
@@ -445,7 +456,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   };
   tracing::info!("static dir: {}", static_dir.display());
 
-  let home_html = render_home();
+  let home_html = render_home(debug);
   let state = AppState { home_html: Arc::new(home_html), debug };
 
   // -- Build the app router.

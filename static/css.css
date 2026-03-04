@@ -160,6 +160,16 @@ ul li + li {
   transition: transform 0.08s ease;
 }
 
+/* Debug links */
+.headerLine a.debug,
+.headerLine a.debug:visited {
+  color: rgba(200, 0, 0, 0.82);
+}
+
+.headerLine a.debug:hover {
+  color: rgba(220, 0, 0, 0.92);
+}
+
 /* Mobile */
 @media (max-width: 600px) {
   .outer {
