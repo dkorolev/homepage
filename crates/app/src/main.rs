@@ -1,8 +1,3 @@
-mod mcpclient;
-mod oauth;
-mod webauthn;
-
-use askama::Template;
 use axum::{
   extract::{Form, Query, Request, State},
   handler::HandlerWithoutStateExt,
@@ -20,8 +15,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tower_http::services::ServeDir;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use url::Url;
-use webauthn_rs::prelude::*;
 
 // -- CLI arguments.
 
@@ -308,29 +301,6 @@ async fn zoom_redirect() -> impl IntoResponse {
   Redirect::permanent(ZOOM_URL)
 }
 
-// -- Piarun passkey page (Askama template).
-
-#[derive(Template)]
-#[template(path = "piarun.html")]
-struct PiarunTemplate {
-  title: String,
-  message: String,
-}
-
-async fn piarun_page() -> impl IntoResponse {
-  let t = PiarunTemplate {
-    title: "Piarun".to_string(),
-    message: "Authenticate with a passkey or register a new one.".to_string(),
-  };
-  match t.render() {
-    Ok(html) => Html(html).into_response(),
-    Err(e) => {
-      tracing::error!(%e, "piarun template render failed");
-      (StatusCode::INTERNAL_SERVER_ERROR, "template error").into_response()
-    }
-  }
-}
-
 /// Middleware: redirect based on Host header (e.g. zoom.dima.ai -> Zoom).
 async fn host_redirects(headers: HeaderMap, request: Request, next: middleware::Next) -> Response {
   if let Some(host) = headers.get(header::HOST) {
@@ -409,26 +379,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   // -- Initialize WebAuthn for /piarun.
   let origin_str =
     if port_https == 443 { format!("https://{}", fqdn) } else { format!("https://{}:{}", fqdn, port_https) };
-  let origin = Url::parse(&origin_str).map_err(|e| format!("origin URL: {}", e))?;
-  let webauthn_instance = WebauthnBuilder::new(&fqdn, &origin)
-    .map_err(|e| format!("webauthn builder: {}", e))?
-    .build()
-    .map_err(|e| format!("webauthn build: {}", e))?;
   let keys_jsonl = args.keys_jsonl;
-  tracing::info!("keys JSONL: {}", keys_jsonl.display());
-  let webauthn_state = Arc::new(webauthn::AppState {
-    webauthn: webauthn_instance,
-    credentials: Arc::new(tokio::sync::RwLock::new(webauthn::load_credentials(&keys_jsonl))),
-    pending_reg: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
-    pending_auth: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
-    keys_jsonl,
-  });
+  let webauthn_state = homepage_webauthn::build_state(&fqdn, &origin_str, keys_jsonl)?;
 
   // -- Initialize OAuth for /login.
-  let oauth_state = oauth::build_state(&origin_str);
+  let oauth_state = homepage_oauth::build_state(&origin_str);
 
   // -- MCP client UI at /mcpclient.
-  let mcpclient_state = mcpclient::new_state(&origin_str);
+  let mcpclient_state = homepage_mcpclient::new_state(&origin_str);
 
   // -- Resolve the static directory.
   // Binary lives in target/release/ or target/debug/, so go two levels up for the project root.
@@ -465,8 +423,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     .route("/r", get(redirect_get).post(redirect_post))
     .route("/blog", get(blog_redirect))
     .route("/blog/chinese/invited-technical-cofounder", get(blog_chinese_redirect))
-    .route("/zoom", get(zoom_redirect))
-    .route("/piarun", get(piarun_page));
+    .route("/zoom", get(zoom_redirect));
 
   if debug {
     app = app.route("/kill", get(kill));
@@ -476,9 +433,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     .nest_service("/static", ServeDir::new(&static_dir))
     .nest_service("/.well-known", ServeDir::new(&static_dir))
     .with_state(state)
-    .merge(webauthn::router(webauthn_state))
-    .merge(oauth::router(oauth_state))
-    .merge(mcpclient::router(mcpclient_state))
+    .merge(homepage_webauthn::router(webauthn_state))
+    .merge(homepage_oauth::router(oauth_state))
+    .merge(homepage_mcpclient::router(mcpclient_state))
     .layer(middleware::from_fn(host_redirects));
 
   // -- HTTP listeners (redirect to HTTPS), bind IPv4 and IPv6.

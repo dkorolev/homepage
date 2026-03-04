@@ -1,9 +1,10 @@
 //! Passkey (WebAuthn) auth: registration and assertion endpoints, state.
 
+use askama::Template;
 use axum::{
   extract::State,
   http::StatusCode,
-  response::IntoResponse,
+  response::{Html, IntoResponse},
   routing::{get, post},
   Json, Router,
 };
@@ -48,14 +49,34 @@ fn build_authed_credential(passkey: &Passkey) -> AuthedCredential {
 }
 
 pub struct AppState {
-  pub webauthn: Webauthn,
-  pub credentials: Arc<RwLock<Vec<Passkey>>>,
-  pub pending_reg: Arc<RwLock<HashMap<String, PasskeyRegistration>>>,
-  pub pending_auth: Arc<RwLock<HashMap<String, PasskeyAuthentication>>>,
-  pub keys_jsonl: PathBuf,
+  webauthn: Webauthn,
+  credentials: Arc<RwLock<Vec<Passkey>>>,
+  pending_reg: Arc<RwLock<HashMap<String, PasskeyRegistration>>>,
+  pending_auth: Arc<RwLock<HashMap<String, PasskeyAuthentication>>>,
+  keys_jsonl: PathBuf,
 }
 
-pub fn load_credentials(path: &PathBuf) -> Vec<Passkey> {
+pub fn build_state(
+  fqdn: &str,
+  origin_str: &str,
+  keys_jsonl: PathBuf,
+) -> Result<Arc<AppState>, Box<dyn std::error::Error + Send + Sync>> {
+  let origin = url::Url::parse(origin_str).map_err(|e| format!("origin URL: {}", e))?;
+  let webauthn_instance = WebauthnBuilder::new(fqdn, &origin)
+    .map_err(|e| format!("webauthn builder: {}", e))?
+    .build()
+    .map_err(|e| format!("webauthn build: {}", e))?;
+  tracing::info!("keys JSONL: {}", keys_jsonl.display());
+  Ok(Arc::new(AppState {
+    webauthn: webauthn_instance,
+    credentials: Arc::new(RwLock::new(load_credentials(&keys_jsonl))),
+    pending_reg: Arc::new(RwLock::new(HashMap::new())),
+    pending_auth: Arc::new(RwLock::new(HashMap::new())),
+    keys_jsonl,
+  }))
+}
+
+fn load_credentials(path: &PathBuf) -> Vec<Passkey> {
   let data = match std::fs::read_to_string(path) {
     Ok(d) => d,
     Err(_) => return Vec::new(),
@@ -92,9 +113,33 @@ fn append_credential(state: &AppState, passkey: &Passkey) {
   }
 }
 
-/// Routes are mounted under `/piarun/webauthn/...`.
+// -- Piarun passkey page (Askama template).
+
+#[derive(Template)]
+#[template(path = "piarun.html")]
+struct PiarunTemplate {
+  title: String,
+  message: String,
+}
+
+async fn piarun_page() -> impl IntoResponse {
+  let t = PiarunTemplate {
+    title: "Piarun".to_string(),
+    message: "Authenticate with a passkey or register a new one.".to_string(),
+  };
+  match t.render() {
+    Ok(html) => Html(html).into_response(),
+    Err(e) => {
+      tracing::error!(%e, "piarun template render failed");
+      (StatusCode::INTERNAL_SERVER_ERROR, "template error").into_response()
+    }
+  }
+}
+
+/// Routes are mounted under `/piarun/...`.
 pub fn router(state: Arc<AppState>) -> Router {
   Router::new()
+    .route("/piarun", get(piarun_page))
     .route("/piarun/webauthn/status", get(status))
     .route("/piarun/webauthn/register/options", post(register_options))
     .route("/piarun/webauthn/register", post(register_verify))
