@@ -124,8 +124,8 @@
       word-break: break-all;
     }
     .back-link {
-      display: inline-block;
-      margin-top: 1.5rem;
+      display: block;
+      margin-top: 0;
       color: #3b82f6;
       text-decoration: none;
       font-size: 0.875rem;
@@ -158,7 +158,7 @@
 </head>
 <body>
   <div class="card">
-    <a href="/login" class="back-link" style="margin-top:0;margin-bottom:1.25rem;">&larr; Back to login</a>
+    <a href="/login" class="back-link" style="margin-bottom:1.25rem;">&larr; Back to login</a>
     {% if success %}
     <span class="badge badge-success">{{ provider_name }}</span>
     <h1>Authenticated</h1>
