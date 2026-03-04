@@ -189,10 +189,13 @@
     <p class="error-message">{{ error_message }}</p>
     {% endif %}
     {% if success %}
-    <form action="/logout" method="post" style="display:inline">
-      <input type="hidden" name="session_id" value="{{ session_id }}">
-      <button type="submit" class="logout-btn">Logout</button>
-    </form>
+    <div style="display:flex; align-items:center; gap:1rem; margin-top:1.5rem;">
+      <form action="/logout" method="post" style="display:inline; margin:0;">
+        <input type="hidden" name="session_id" value="{{ session_id }}">
+        <button type="submit" class="logout-btn">Logout</button>
+      </form>
+      <a href="/login" class="back-link" style="margin-top:0;">&larr; Back to login</a>
+    </div>
     {% else %}
     <a href="/login" class="back-link">&larr; Back to login</a>
     {% endif %}
