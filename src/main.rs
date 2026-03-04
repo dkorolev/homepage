@@ -1,3 +1,4 @@
+mod oauth;
 mod webauthn;
 
 use askama::Template;
@@ -408,6 +409,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     keys_jsonl,
   });
 
+  // -- Initialize OAuth for /login.
+  let oauth_state = oauth::build_state(&origin_str);
+
   // -- Resolve the static directory.
   // Binary lives in target/release/ or target/debug/, so go two levels up for the project root.
   let project_root = std::env::current_exe()
@@ -455,6 +459,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     .nest_service("/.well-known", ServeDir::new(&static_dir))
     .with_state(state)
     .merge(webauthn::router(webauthn_state))
+    .merge(oauth::router(oauth_state))
     .layer(middleware::from_fn(host_redirects));
 
   // -- HTTP listeners (redirect to HTTPS), bind IPv4 and IPv6.
