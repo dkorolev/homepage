@@ -165,6 +165,14 @@ struct LoginResultTemplate {
   session_id: String,
 }
 
+#[derive(Template)]
+#[template(path = "logout_result.html")]
+struct LogoutResultTemplate {
+  provider_name: String,
+  revoke_ok: bool,
+  revoke_detail: String,
+}
+
 // -- Route handlers.
 
 async fn login_debug() -> impl IntoResponse {
@@ -215,7 +223,7 @@ async fn start_oauth(Path(slug): Path<String>, State(state): State<Arc<OAuthStat
   state.pending.write().await.insert(csrf_state.clone(), PendingAuth { provider });
 
   let redirect_uri = format!("{}/login/{}/callback", state.base_url, provider.slug());
-  let url = format!(
+  let mut url = format!(
     "{}?client_id={}&redirect_uri={}&scope={}&state={}&response_type=code",
     provider.auth_url(),
     urlencod(&config.client_id),
@@ -223,6 +231,10 @@ async fn start_oauth(Path(slug): Path<String>, State(state): State<Arc<OAuthStat
     urlencod(provider.scopes()),
     urlencod(&csrf_state),
   );
+
+  if provider == Provider::Google {
+    url.push_str("&prompt=consent");
+  }
 
   Redirect::temporary(&url).into_response()
 }
@@ -406,18 +418,20 @@ struct LogoutForm {
 
 async fn logout(State(state): State<Arc<OAuthState>>, Form(form): Form<LogoutForm>) -> impl IntoResponse {
   let session = state.sessions.write().await.remove(&form.session_id);
-  if let Some(session) = session {
+
+  let (provider_name, revoke_ok, revoke_detail) = if let Some(session) = session {
+    let provider_name = session.provider.display_name().to_string();
     let config = state.providers.get(&session.provider);
+
     if let Some(config) = config {
       match session.provider {
         Provider::GitHub => {
-          // Revoke the entire OAuth app grant so user must re-authorize.
+          // Revoke the entire OAuth app grant (also deletes all tokens for this user).
+          // Must be done in a single call -- revoking the token first would invalidate
+          // the access_token reference needed to identify the user for grant revocation.
           match state
             .http_client
-            .delete(format!(
-              "https://api.github.com/applications/{}/grant",
-              config.client_id
-            ))
+            .delete(format!("https://api.github.com/applications/{}/grant", config.client_id))
             .basic_auth(&config.client_id, Some(&config.client_secret))
             .header("Accept", "application/json")
             .header("User-Agent", "homepage-oauth/1.0")
@@ -425,12 +439,20 @@ async fn logout(State(state): State<Arc<OAuthState>>, Form(form): Form<LogoutFor
             .send()
             .await
           {
-            Ok(resp) => tracing::info!(status = %resp.status(), "revoked GitHub OAuth grant"),
-            Err(e) => tracing::warn!(error = %e, "failed to revoke GitHub OAuth grant"),
+            Ok(resp) => {
+              let status = resp.status();
+              let body = resp.text().await.unwrap_or_default();
+              tracing::info!(%status, %body, "GitHub grant revocation response");
+              let ok = status.as_u16() == 204 || status.is_success();
+              (provider_name, ok, format!("Grant revoke: {} {}", status, body).trim().to_string())
+            }
+            Err(e) => {
+              tracing::warn!(error = %e, "failed to revoke GitHub grant");
+              (provider_name, false, format!("Grant revoke failed: {}", e))
+            }
           }
         }
         Provider::Google => {
-          // Google: POST to revoke endpoint.
           match state
             .http_client
             .post(format!(
@@ -441,17 +463,37 @@ async fn logout(State(state): State<Arc<OAuthState>>, Form(form): Form<LogoutFor
             .send()
             .await
           {
-            Ok(resp) => tracing::info!(status = %resp.status(), "revoked Google OAuth token"),
-            Err(e) => tracing::warn!(error = %e, "failed to revoke Google OAuth token"),
+            Ok(resp) => {
+              let status = resp.status();
+              tracing::info!(%status, "revoked Google OAuth token");
+              (provider_name, status.is_success(), format!("Token revoke: {}", status))
+            }
+            Err(e) => {
+              tracing::warn!(error = %e, "failed to revoke Google OAuth token");
+              (provider_name, false, format!("Token revoke: error ({})", e))
+            }
           }
         }
         Provider::TopSecret => {
           tracing::info!("cleared topsecret session (no revoke API)");
+          (provider_name, true, "Session cleared.".to_string())
         }
       }
+    } else {
+      (provider_name, false, "Provider not configured.".to_string())
+    }
+  } else {
+    ("unknown".to_string(), false, "Session not found (expired or already logged out).".to_string())
+  };
+
+  let t = LogoutResultTemplate { provider_name, revoke_ok, revoke_detail };
+  match t.render() {
+    Ok(html) => Html(html).into_response(),
+    Err(e) => {
+      tracing::error!(%e, "logout_result template render failed");
+      Redirect::to("/login").into_response()
     }
   }
-  Redirect::to("/login").into_response()
 }
 
 // -- Router.
