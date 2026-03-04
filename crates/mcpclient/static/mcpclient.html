@@ -216,10 +216,12 @@
 const API = '/mcpclient/api';
 const $ = s => document.querySelector(s);
 let reqSeq = 0;
+let connectClicked = false;
 const debugLines = [];
 const MAX_DEBUG_LINES = 2000;
 
 function appendDebugLogLine(line) {
+  if (!connectClicked) return;
   debugLines.push(line);
   if (debugLines.length > MAX_DEBUG_LINES) {
     debugLines.splice(0, debugLines.length - MAX_DEBUG_LINES);
@@ -230,17 +232,56 @@ function appendDebugLogLine(line) {
   box.scrollTop = box.scrollHeight;
 }
 
-function vlog(step, status, details) {
-  const ts = new Date().toISOString();
-  let payload = '';
-  if (details !== undefined) {
-    try {
-      payload = ` details=${JSON.stringify(details)}`;
-    } catch (_) {
-      payload = ` details=${String(details)}`;
+function formatDetails(step, status, details) {
+  if (details === undefined) return '';
+  if (typeof details !== 'object' || details === null) return String(details);
+  const trunc = (v, max) => {
+    const s = typeof v === 'string' ? v : JSON.stringify(v);
+    return s.length <= (max || 120) ? s : s.slice(0, (max || 120)) + '…';
+  };
+  if (step === 'api.request') {
+    const method = details.method || '?';
+    const path = (details.url || '').replace(API, '') || '?';
+    let out = `${method} ${path}`;
+    if (details.body != null) {
+      const bodyStr = typeof details.body === 'string' ? details.body : JSON.stringify(details.body);
+      if (bodyStr.length <= 80) out += ` — ${bodyStr}`;
+      else out += ` — body ${bodyStr.length} chars`;
+    }
+    return out;
+  }
+  if (step === 'api.response') {
+    const method = details.method || '?';
+    const path = (details.url || '').replace(API, '') || '?';
+    let out = `${method} ${path} → ${details.httpStatus || '?'}`;
+    if (!details.ok && details.rawBody) out += ` — ${trunc(details.rawBody, 200)}`;
+    else if (path.includes('/call') && details.rawBody) out += ` — ${trunc(details.rawBody, 300)}`;
+    else if (details.error) out += ` — ${details.error}`;
+    return out;
+  }
+  if (step === 'api.parse') {
+    if (details.error) return ' — ' + trunc(details.error, 100);
+    if (details.rawBody !== undefined) return ' — response: ' + trunc(details.rawBody, 150);
+    return '';
+  }
+  if (step === 'log') return details.msg !== undefined ? ' — ' + trunc(details.msg, 200) : '';
+  const parts = [];
+  for (const [k, v] of Object.entries(details)) {
+    if (v === undefined || v === null) continue;
+    if (typeof v === 'object' && k !== 'body' && k !== 'parsed') {
+      parts.push(`${k}=${trunc(v, 80)}`);
+    } else {
+      parts.push(`${k}=${trunc(v, 80)}`);
     }
   }
-  const line = `[mcpclient][${ts}] step=${step} status=${status}${payload}`;
+  return parts.length ? ' — ' + parts.join(' ') : '';
+}
+
+function vlog(step, status, details) {
+  if (!connectClicked) return;
+  const ts = new Date().toISOString();
+  const payload = formatDetails(step, status, details);
+  const line = `[${ts}] ${step} ${status}${payload}`;
   console.log(line);
   appendDebugLogLine(line);
 }
@@ -257,7 +298,7 @@ async function copyLogs() {
 }
 
 function log(msg, cls) {
-  vlog('ui.log', cls || 'info', { message: msg });
+  vlog('log', cls || 'info', { msg });
   const el = document.createElement('div');
   el.textContent = msg;
   if (cls) el.className = cls;
@@ -307,12 +348,18 @@ async function api(method, path, body) {
 }
 
 async function init() {
-  vlog('init', 'start', { location: window.location.href });
+  const urlInput = $('#mcp-url');
+  urlInput.addEventListener('keydown', function(ev) {
+    if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
+      ev.preventDefault();
+      if (urlInput.value.trim()) doConnect();
+    }
+  });
   const st = await api('GET', '/status');
-  vlog('init', 'status-response', st);
   $('#server-url').textContent = st.mcp_url || 'Enter MCP server URL';
-  if (st.mcp_url) $('#mcp-url').value = st.mcp_url;
+  if (st.mcp_url) urlInput.value = st.mcp_url;
   if (st.connected) {
+    connectClicked = true;
     onConnected(st);
   } else {
     log(st.mcp_url ? 'Ready. Click Connect.' : 'Enter MCP server URL above and click Connect.');
@@ -364,8 +411,9 @@ function stopAuthPoll() {
 }
 
 async function doConnect(forceReauth = false) {
+  connectClicked = true;
   const url = $('#mcp-url').value.trim();
-  vlog('connect', 'start', { mcpUrl: url || null, awaitingAuth, forceReauth });
+  vlog('connect', 'start', { url: url || '(empty)', awaitingAuth, forceReauth });
   const btn = $('#connect-btn');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Connecting';
