@@ -1,3 +1,4 @@
+mod mcpclient;
 mod oauth;
 mod webauthn;
 
@@ -412,6 +413,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   // -- Initialize OAuth for /login.
   let oauth_state = oauth::build_state(&origin_str);
 
+  // -- MCP client UI at /mcpclient.
+  let mcpclient_state = mcpclient::new_state(&origin_str);
+
   // -- Resolve the static directory.
   // Binary lives in target/release/ or target/debug/, so go two levels up for the project root.
   let project_root = std::env::current_exe()
@@ -460,6 +464,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     .with_state(state)
     .merge(webauthn::router(webauthn_state))
     .merge(oauth::router(oauth_state))
+    .merge(mcpclient::router(mcpclient_state))
     .layer(middleware::from_fn(host_redirects));
 
   // -- HTTP listeners (redirect to HTTPS), bind IPv4 and IPv6.

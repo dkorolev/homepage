@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP Client</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --red: #f85149; --yellow: #d29922;
+    --radius: 8px; --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.5;
+    padding: 0; min-height: 100vh;
+  }
+  header {
+    border-bottom: 1px solid var(--border); padding: 16px 24px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 18px; font-weight: 600; white-space: nowrap; }
+  #server-url {
+    font-family: var(--mono); font-size: 13px; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 12px;
+    font-size: 12px; font-weight: 500;
+  }
+  .badge-ok { background: rgba(63,185,80,.15); color: var(--green); }
+  .badge-warn { background: rgba(210,153,34,.15); color: var(--yellow); }
+  .badge-err { background: rgba(248,81,73,.15); color: var(--red); }
+
+  main { max-width: 960px; margin: 0 auto; padding: 24px; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 16px; overflow: hidden;
+  }
+  .card-header {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    font-weight: 600; font-size: 14px;
+  }
+  .card-body { padding: 16px; }
+
+  .url-row { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+  .url-row input {
+    flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 4px; padding: 6px 10px; font-size: 13px; font-family: var(--mono);
+  }
+
+  button, .btn {
+    background: var(--accent); color: #fff; border: none;
+    padding: 6px 16px; border-radius: 6px; cursor: pointer;
+    font-size: 13px; font-weight: 500; transition: opacity .15s;
+  }
+  button:hover { opacity: 0.85; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  .btn-sm { padding: 4px 12px; font-size: 12px; }
+  .btn-outline {
+    background: transparent; border: 1px solid var(--border); color: var(--text);
+  }
+  .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+
+  .tool-item {
+    padding: 12px 0; border-bottom: 1px solid var(--border);
+  }
+  .tool-item:last-child { border-bottom: none; }
+  .tool-name {
+    font-family: var(--mono); font-size: 14px; font-weight: 600;
+    color: var(--accent); cursor: pointer;
+  }
+  .tool-name:hover { text-decoration: underline; }
+  .tool-desc { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .tool-params {
+    margin-top: 8px; font-size: 12px; color: var(--muted);
+    font-family: var(--mono);
+  }
+  .param-required { color: var(--yellow); }
+
+  .invoke-panel {
+    display: none; margin-top: 12px; padding: 12px;
+    background: var(--bg); border-radius: var(--radius);
+    border: 1px solid var(--border);
+  }
+  .invoke-panel.open { display: block; }
+  .invoke-panel label {
+    display: block; font-size: 12px; color: var(--muted);
+    margin-bottom: 4px; margin-top: 8px; font-family: var(--mono);
+  }
+  .invoke-panel label:first-child { margin-top: 0; }
+  .invoke-panel input, .invoke-panel textarea {
+    width: 100%; background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 6px 10px; font-size: 13px; font-family: var(--mono);
+    outline: none; transition: border-color .15s;
+  }
+  .invoke-panel input:focus, .invoke-panel textarea:focus {
+    border-color: var(--accent);
+  }
+  .invoke-panel textarea { resize: vertical; min-height: 60px; }
+
+  .result-block {
+    margin-top: 12px; padding: 12px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); font-family: var(--mono);
+    font-size: 13px; white-space: pre-wrap; word-break: break-all;
+    max-height: 400px; overflow-y: auto;
+  }
+  .result-error { border-color: var(--red); color: var(--red); }
+
+  #log {
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+    max-height: 200px; overflow-y: auto; padding: 12px;
+  }
+  #log .log-err { color: var(--red); }
+  #log .log-ok { color: var(--green); }
+
+  #debug-log-output {
+    width: 100%;
+    min-height: 240px;
+    max-height: 360px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .empty { padding: 24px; text-align: center; color: var(--muted); font-size: 14px; }
+
+  .spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .6s linear infinite;
+    vertical-align: middle; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>MCP Client</h1>
+  <span id="server-url"></span>
+  <span id="status-badge" class="badge badge-warn">connecting…</span>
+</header>
+
+<main>
+  <div class="card" id="connect-card">
+    <div class="card-header">
+      Connection
+      <button id="connect-btn" onclick="doConnect()">Connect</button>
+      <button class="btn-sm btn-outline" onclick="doReauthorize()">Re-authorize</button>
+    </div>
+    <div class="card-body">
+      <div class="url-row">
+        <input type="url" id="mcp-url" placeholder="https://mcp.example.com/mcp" />
+      </div>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <div class="card" id="tools-card" style="display:none">
+    <div class="card-header">
+      Tools
+      <button class="btn-sm btn-outline" onclick="loadTools()">Refresh</button>
+    </div>
+    <div class="card-body" id="tools-list">
+      <div class="empty">Loading tools…</div>
+    </div>
+  </div>
+
+  <div class="card" id="resources-card" style="display:none">
+    <div class="card-header">
+      Resources
+      <button class="btn-sm btn-outline" onclick="loadResources()">Refresh</button>
+    </div>
+    <div class="card-body" id="resources-list">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+
+  <div class="card" id="prompts-card" style="display:none">
+    <div class="card-header">
+      Prompts
+      <button class="btn-sm btn-outline" onclick="loadPrompts()">Refresh</button>
+    </div>
+    <div class="card-body" id="prompts-list">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+
+  <div class="card" id="debug-card">
+    <div class="card-header">
+      Debug Logs
+      <button class="btn-sm btn-outline" onclick="copyLogs()">Copy Logs</button>
+    </div>
+    <div class="card-body">
+      <pre id="debug-log-output"></pre>
+    </div>
+  </div>
+</main>
+
+<script>
+const API = '/mcpclient/api';
+const $ = s => document.querySelector(s);
+let reqSeq = 0;
+const debugLines = [];
+const MAX_DEBUG_LINES = 2000;
+
+function appendDebugLogLine(line) {
+  debugLines.push(line);
+  if (debugLines.length > MAX_DEBUG_LINES) {
+    debugLines.splice(0, debugLines.length - MAX_DEBUG_LINES);
+  }
+  const box = $('#debug-log-output');
+  if (!box) return;
+  box.textContent = debugLines.join('\n');
+  box.scrollTop = box.scrollHeight;
+}
+
+function vlog(step, status, details) {
+  const ts = new Date().toISOString();
+  let payload = '';
+  if (details !== undefined) {
+    try {
+      payload = ` details=${JSON.stringify(details)}`;
+    } catch (_) {
+      payload = ` details=${String(details)}`;
+    }
+  }
+  const line = `[mcpclient][${ts}] step=${step} status=${status}${payload}`;
+  console.log(line);
+  appendDebugLogLine(line);
+}
+
+async function copyLogs() {
+  const all = debugLines.join('\n');
+  try {
+    await navigator.clipboard.writeText(all);
+    log(`Copied ${debugLines.length} log lines to clipboard.`, 'log-ok');
+  } catch (e) {
+    vlog('logs.copy', 'clipboard-error', { error: String(e) });
+    log('Copy failed. Clipboard permissions may be blocked.', 'log-err');
+  }
+}
+
+function log(msg, cls) {
+  vlog('ui.log', cls || 'info', { message: msg });
+  const el = document.createElement('div');
+  el.textContent = msg;
+  if (cls) el.className = cls;
+  $('#log').appendChild(el);
+  $('#log').scrollTop = $('#log').scrollHeight;
+}
+
+async function api(method, path, body) {
+  const reqId = ++reqSeq;
+  const url = API + path;
+  vlog('api.request', 'sending', { reqId, method, url, body: body ?? null });
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  try {
+    const r = await fetch(url, opts);
+    const raw = await r.text();
+    vlog('api.response', 'received', {
+      reqId,
+      method,
+      url,
+      httpStatus: r.status,
+      ok: r.ok,
+      rawBody: raw
+    });
+    if (!raw) {
+      vlog('api.parse', 'empty-body', { reqId, method, url });
+      return {};
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      vlog('api.parse', 'json-ok', { reqId, method, url, parsed });
+      return parsed;
+    } catch (e) {
+      vlog('api.parse', 'json-error', {
+        reqId,
+        method,
+        url,
+        error: String(e),
+        rawBody: raw
+      });
+      return { ok: false, error: `Non-JSON response from ${url}: ${raw}` };
+    }
+  } catch (e) {
+    vlog('api.request', 'network-error', { reqId, method, url, error: String(e) });
+    throw e;
+  }
+}
+
+async function init() {
+  vlog('init', 'start', { location: window.location.href });
+  const st = await api('GET', '/status');
+  vlog('init', 'status-response', st);
+  $('#server-url').textContent = st.mcp_url || 'Enter MCP server URL';
+  if (st.mcp_url) $('#mcp-url').value = st.mcp_url;
+  if (st.connected) {
+    onConnected(st);
+  } else {
+    log(st.mcp_url ? 'Ready. Click Connect.' : 'Enter MCP server URL above and click Connect.');
+  }
+}
+
+let authPollTimer = null;
+let awaitingAuth = false;
+
+window.addEventListener('message', function(ev) {
+  vlog('oauth.message', 'received', { origin: ev.origin, data: ev.data || null });
+  if (ev.data && ev.data.type === 'mcp-oauth-complete') {
+    log('Authorization complete, reconnecting…', 'log-ok');
+    stopAuthPoll();
+    awaitingAuth = false;
+    doConnect();
+  }
+});
+
+function startAuthPoll() {
+  stopAuthPoll();
+  vlog('auth.poll', 'started', { intervalMs: 2000, maxAttempts: 120 });
+  let attempts = 0;
+  authPollTimer = setInterval(async () => {
+    attempts++;
+    vlog('auth.poll', 'tick', { attempt: attempts });
+    try {
+      const st = await api('GET', '/status');
+      vlog('auth.poll', 'status', { attempt: attempts, statusPayload: st });
+      if (st.authenticated) {
+        log('Token received, reconnecting…', 'log-ok');
+        stopAuthPoll();
+        awaitingAuth = false;
+        doConnect();
+      }
+    } catch (e) {
+      vlog('auth.poll', 'status-error', { attempt: attempts, error: String(e) });
+    }
+    if (attempts > 120) {
+      vlog('auth.poll', 'max-attempts-reached', { attempt: attempts });
+      stopAuthPoll();
+    }
+  }, 2000);
+}
+
+function stopAuthPoll() {
+  vlog('auth.poll', authPollTimer ? 'stopping' : 'already-stopped', {});
+  if (authPollTimer) { clearInterval(authPollTimer); authPollTimer = null; }
+}
+
+async function doConnect(forceReauth = false) {
+  const url = $('#mcp-url').value.trim();
+  vlog('connect', 'start', { mcpUrl: url || null, awaitingAuth, forceReauth });
+  const btn = $('#connect-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Connecting';
+  log('Connecting…');
+
+  try {
+    const body = url ? { url: url } : {};
+    if (forceReauth) body.force_reauth = true;
+    vlog('connect', 'calling-api', { endpoint: '/connect', body });
+    const r = await api('POST', '/connect', body);
+    vlog('connect', 'api-response', r);
+    if (r.ok) {
+      stopAuthPoll();
+      awaitingAuth = false;
+      onConnected(r);
+    } else if (r.needs_auth) {
+      if (awaitingAuth) {
+        log('Still waiting for authorization…', 'log-ok');
+        if (!authPollTimer) startAuthPoll();
+      } else if (r.auth_url) {
+        awaitingAuth = true;
+        log('Authorization required. Opening browser…', 'log-ok');
+        vlog('oauth.window', 'opening', { authUrl: r.auth_url, target: '_blank' });
+        window.open(r.auth_url, '_blank');
+        log('Complete sign-in in the browser…');
+        $('#status-badge').textContent = 'awaiting auth';
+        $('#status-badge').className = 'badge badge-warn';
+        startAuthPoll();
+      } else {
+        vlog('connect', 'needs-auth-without-url', r);
+        log('Auth required but no auth URL: ' + (r.error || ''), 'log-err');
+      }
+    } else {
+      vlog('connect', 'connect-error', r);
+      log('Error: ' + (r.error || 'unknown'), 'log-err');
+    }
+  } catch (e) {
+    vlog('connect', 'fetch-error', { error: String(e), stack: e && e.stack ? String(e.stack) : null });
+    log('Fetch error: ' + e, 'log-err');
+  }
+  vlog('connect', 'done', {});
+  btn.disabled = false;
+  btn.textContent = 'Connect';
+}
+
+async function doReauthorize() {
+  stopAuthPoll();
+  awaitingAuth = false;
+  log('Forcing re-authorization…');
+  return doConnect(true);
+}
+
+function onConnected(info) {
+  vlog('connected', 'processing', info);
+  const si = info.server_info || {};
+  const name = si.name || si.serverInfo?.name || '';
+  const ver = si.version || si.serverInfo?.version || '';
+  const pv = si.protocolVersion || '';
+  log('Connected' + (name ? ' to ' + name : '') + (ver ? ' v' + ver : '') + (pv ? ' (protocol ' + pv + ')' : ''), 'log-ok');
+  $('#server-url').textContent = $('#mcp-url').value.trim();
+  $('#status-badge').textContent = 'connected';
+  $('#status-badge').className = 'badge badge-ok';
+
+  const caps = info.capabilities || si.serverCapabilities || {};
+  const capKeys = Object.keys(caps).filter(k => caps[k] != null);
+  vlog('connected', 'capabilities', { capabilityKeys: capKeys, rawCapabilities: caps });
+  if (capKeys.length) log('Capabilities: ' + capKeys.join(', '));
+
+  loadAllCapabilities();
+}
+
+async function loadAllCapabilities() {
+  vlog('capabilities', 'loading-all', {});
+  const [tools, resources, prompts] = await Promise.allSettled([
+    api('GET', '/tools'),
+    api('GET', '/resources'),
+    api('GET', '/prompts'),
+  ]);
+  vlog('capabilities', 'all-results', { tools, resources, prompts });
+
+  if (tools.status === 'fulfilled' && tools.value.ok) {
+    const list = tools.value.tools || [];
+    $('#tools-card').style.display = '';
+    if (list.length) {
+      log('Tools (' + list.length + '): ' + list.map(t => t.name).join(', '));
+      renderToolsList(list);
+    } else {
+      $('#tools-list').innerHTML = '<div class="empty">No tools available.</div>';
+    }
+  }
+
+  if (resources.status === 'fulfilled' && resources.value.ok) {
+    const list = resources.value.resources || [];
+    $('#resources-card').style.display = '';
+    if (list.length) {
+      log('Resources (' + list.length + '): ' + list.map(r => r.uri || r.name || '?').join(', '));
+      renderResourcesList(list);
+    } else {
+      $('#resources-list').innerHTML = '<div class="empty">No resources.</div>';
+    }
+  }
+
+  if (prompts.status === 'fulfilled' && prompts.value.ok) {
+    const list = prompts.value.prompts || [];
+    $('#prompts-card').style.display = '';
+    if (list.length) {
+      log('Prompts (' + list.length + '): ' + list.map(p => p.name).join(', '));
+      renderPromptsList(list);
+    } else {
+      $('#prompts-list').innerHTML = '<div class="empty">No prompts.</div>';
+    }
+  }
+}
+
+async function loadTools() {
+  vlog('tools', 'refresh-start', {});
+  const r = await api('GET', '/tools');
+  vlog('tools', 'refresh-response', r);
+  if (!r.ok) {
+    $('#tools-list').innerHTML = '<div class="empty">Error: ' + esc(r.error) + '</div>';
+    return;
+  }
+  renderToolsList(r.tools || []);
+}
+
+function renderToolsList(tools) {
+  const list = $('#tools-list');
+  if (!tools.length) {
+    list.innerHTML = '<div class="empty">No tools available.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  tools.forEach((t, i) => {
+    const el = document.createElement('div');
+    el.className = 'tool-item';
+    el.innerHTML = renderTool(t, i);
+    list.appendChild(el);
+  });
+}
+
+function renderTool(t, idx) {
+  const schema = t.inputSchema || t.input_schema || {};
+  const props = schema.properties || {};
+  const required = new Set(schema.required || []);
+  let paramsHtml = '';
+  for (const [k, v] of Object.entries(props)) {
+    const req = required.has(k) ? ' <span class="param-required">required</span>' : '';
+    const desc = v.description ? ' — ' + esc(v.description) : '';
+    paramsHtml += `<div>  ${esc(k)}: ${esc(v.type || 'any')}${req}${desc}</div>`;
+  }
+  const id = 'tool-' + idx;
+  return `
+    <div class="tool-name" onclick="toggleInvoke('${id}')">${esc(t.name)}</div>
+    ${t.description ? `<div class="tool-desc">${esc(t.description)}</div>` : ''}
+    ${paramsHtml ? `<div class="tool-params">${paramsHtml}</div>` : ''}
+    <div class="invoke-panel" id="${id}">
+      ${renderInputs(t, idx)}
+      <div style="margin-top:10px">
+        <button onclick="invokeTool(${idx})">Run</button>
+      </div>
+      <div class="result-block" id="result-${idx}" style="display:none"></div>
+    </div>`;
+}
+
+function renderInputs(t, idx) {
+  const schema = t.inputSchema || t.input_schema || {};
+  const props = schema.properties || {};
+  const required = new Set(schema.required || []);
+  if (!Object.keys(props).length) {
+    return '<div style="font-size:13px;color:var(--muted)">No parameters</div>';
+  }
+  let html = '';
+  for (const [k, v] of Object.entries(props)) {
+    const req = required.has(k) ? ' (required)' : '';
+    const placeholder = v.description || '';
+    if (v.type === 'object' || v.type === 'array') {
+      html += `<label>${esc(k)}${req}</label>
+        <textarea data-tool="${idx}" data-param="${esc(k)}" placeholder="${esc(placeholder)}"></textarea>`;
+    } else {
+      html += `<label>${esc(k)}${req}</label>
+        <input data-tool="${idx}" data-param="${esc(k)}" placeholder="${esc(placeholder)}">`;
+    }
+  }
+  return html;
+}
+
+function toggleInvoke(id) {
+  document.getElementById(id).classList.toggle('open');
+}
+
+async function invokeTool(idx) {
+  vlog('tool.invoke', 'start', { index: idx });
+  const r = await api('GET', '/tools');
+  const tool = (r.tools || [])[idx];
+  vlog('tool.invoke', 'tools-response', r);
+  if (!tool) {
+    vlog('tool.invoke', 'tool-not-found', { index: idx });
+    return;
+  }
+
+  const args = {};
+  const schema = tool.inputSchema || tool.input_schema || {};
+  const props = schema.properties || {};
+  document.querySelectorAll(`[data-tool="${idx}"]`).forEach(el => {
+    const name = el.dataset.param;
+    const val = el.value.trim();
+    if (!val) return;
+    const prop = props[name] || {};
+    const ptype = prop.type || 'string';
+    if (ptype === 'integer' || ptype === 'number') {
+      args[name] = Number(val);
+    } else if (ptype === 'boolean') {
+      args[name] = val === 'true' || val === '1';
+    } else if (ptype === 'object' || ptype === 'array') {
+      try { args[name] = JSON.parse(val); } catch { args[name] = val; }
+    } else {
+      args[name] = val;
+    }
+  });
+  vlog('tool.invoke', 'prepared-args', { toolName: tool.name, arguments: args });
+
+  const resultEl = document.getElementById('result-' + idx);
+  resultEl.style.display = '';
+  resultEl.className = 'result-block';
+  resultEl.textContent = 'Calling…';
+
+  try {
+    vlog('tool.invoke', 'calling-api', { endpoint: '/call', payload: { name: tool.name, arguments: args } });
+    const resp = await api('POST', '/call', { name: tool.name, arguments: args });
+    vlog('tool.invoke', 'api-response', resp);
+    if (resp.ok) {
+      const result = resp.result || {};
+      const content = result.content || [result];
+      let text = '';
+      (Array.isArray(content) ? content : [content]).forEach(item => {
+        if (item && item.type === 'text') text += item.text + '\n';
+        else text += JSON.stringify(item, null, 2) + '\n';
+      });
+      resultEl.textContent = text.trimEnd();
+    } else {
+      resultEl.className = 'result-block result-error';
+      resultEl.textContent = JSON.stringify(resp.error, null, 2);
+    }
+  } catch (e) {
+    vlog('tool.invoke', 'fetch-error', { error: String(e), stack: e && e.stack ? String(e.stack) : null });
+    resultEl.className = 'result-block result-error';
+    resultEl.textContent = 'Fetch error: ' + e;
+  }
+}
+
+async function loadResources() {
+  vlog('resources', 'refresh-start', {});
+  const r = await api('GET', '/resources');
+  vlog('resources', 'refresh-response', r);
+  if (!r.ok) {
+    $('#resources-list').innerHTML = '<div class="empty">Error: ' + esc(r.error) + '</div>';
+    return;
+  }
+  renderResourcesList(r.resources || []);
+}
+
+function renderResourcesList(res) {
+  const list = $('#resources-list');
+  if (!res.length) {
+    list.innerHTML = '<div class="empty">No resources.</div>';
+    return;
+  }
+  list.innerHTML = res.map(r =>
+    `<div style="padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="font-family:var(--mono);font-size:13px">${esc(r.uri || r.name || '?')}</span>
+      ${r.description ? `<div style="font-size:12px;color:var(--muted)">${esc(r.description)}</div>` : ''}
+    </div>`
+  ).join('');
+}
+
+async function loadPrompts() {
+  vlog('prompts', 'refresh-start', {});
+  const r = await api('GET', '/prompts');
+  vlog('prompts', 'refresh-response', r);
+  if (!r.ok) {
+    $('#prompts-list').innerHTML = '<div class="empty">Error: ' + esc(r.error) + '</div>';
+    return;
+  }
+  renderPromptsList(r.prompts || []);
+}
+
+function renderPromptsList(prompts) {
+  const list = $('#prompts-list');
+  if (!prompts.length) {
+    list.innerHTML = '<div class="empty">No prompts.</div>';
+    return;
+  }
+  list.innerHTML = prompts.map(p =>
+    `<div style="padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="font-family:var(--mono);font-size:13px;color:var(--accent)">${esc(p.name)}</span>
+      ${p.description ? `<div style="font-size:12px;color:var(--muted)">${esc(p.description)}</div>` : ''}
+    </div>`
+  ).join('');
+}
+
+function esc(s) {
+  if (s == null) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
+init();
+</script>
+</body>
+</html>
