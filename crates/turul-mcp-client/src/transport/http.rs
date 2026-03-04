@@ -175,35 +175,81 @@ impl HttpTransport {
             .await
             .map_err(|e| TransportError::Http(format!("SSE body read: {}", e)))?;
         let body = String::from_utf8_lossy(&bytes);
-        let mut buffer = body.as_ref();
-        while let Some(end) = buffer.find("\n\n") {
-            let event_text = &buffer[..end];
-            buffer = &buffer[end + 2..];
-            let mut data = String::new();
-            for line in event_text.lines() {
-                if let Some(data_value) = line.strip_prefix("data: ") {
-                    if !data.is_empty() {
-                        data.push('\n');
-                    }
-                    data.push_str(data_value);
-                }
-            }
-            if data.is_empty() {
+        let body = body.trim();
+        let event_sep = if body.contains("\r\n\r\n") { "\r\n\r\n" } else { "\n\n" };
+        let mut had_sse_data = false;
+        for event_text in body.split(event_sep) {
+            let event_text = event_text.trim();
+            if event_text.is_empty() {
                 continue;
             }
-            if let Ok(json) = serde_json::from_str::<Value>(&data) {
-                if json.get("id").is_some() && (json.get("result").is_some() || json.get("error").is_some()) {
-                    self.update_stats(|stats| stats.responses_received += 1);
-                    return Ok(json);
+            let mut data_lines = Vec::new();
+            for line in event_text.lines() {
+                let line = line.trim_end_matches('\r');
+                if let Some(data_value) = line.strip_prefix("data: ") {
+                    had_sse_data = true;
+                    data_lines.push(data_value.to_string());
                 }
-                if json.get("method").is_some() {
-                    if let Some(ref tx) = self.event_sender {
-                        let _ = tx.send(ServerEvent::Notification(json));
+            }
+            for data in data_lines {
+                if data.is_empty() {
+                    continue;
+                }
+                if let Some(json) = self.parse_sse_json_line(&data) {
+                    if json.get("id").is_some() && (json.get("result").is_some() || json.get("error").is_some()) {
+                        self.update_stats(|stats| stats.responses_received += 1);
+                        return Ok(json);
+                    }
+                    if json.get("method").is_some() {
+                        if let Some(ref tx) = self.event_sender {
+                            let _ = tx.send(ServerEvent::Notification(json));
+                        }
                     }
                 }
             }
         }
-        Err(TransportError::Http("SSE stream had no JSON-RPC result/error frame".to_string()).into())
+        if !had_sse_data {
+            for line in body.lines() {
+                let line = line.trim().trim_end_matches('\r');
+                if line.is_empty() {
+                    continue;
+                }
+                if let Ok(json) = serde_json::from_str::<Value>(line) {
+                    if json.get("id").is_some() && (json.get("result").is_some() || json.get("error").is_some()) {
+                        self.update_stats(|stats| stats.responses_received += 1);
+                        return Ok(json);
+                    }
+                }
+            }
+            if let Ok(json) = serde_json::from_str::<Value>(body) {
+                if json.get("id").is_some() && (json.get("result").is_some() || json.get("error").is_some()) {
+                    self.update_stats(|stats| stats.responses_received += 1);
+                    return Ok(json);
+                }
+            }
+        }
+        let preview = body.chars().take(200).collect::<String>();
+        Err(TransportError::Http(format!(
+            "SSE stream had no JSON-RPC result/error frame (body preview: {:?})",
+            preview
+        ))
+        .into())
+    }
+
+    fn parse_sse_json_line(&self, data: &str) -> Option<Value> {
+        if let Ok(json) = serde_json::from_str::<Value>(data.trim()) {
+            return Some(json);
+        }
+        for line in data.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Ok(json) = serde_json::from_str::<Value>(line) {
+                return Some(json);
+            }
+        }
+        None
     }
 
     /// Handle JSON stream (works for both single responses and chunked streaming)
