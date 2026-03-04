@@ -6,3 +6,11 @@ members = [
   "crates/mcpclient",
 ]
 resolver = "2"
+
+[profile.fast-release]
+inherits = "release"
+# Optimize for shorter rebuilds while keeping release-like codegen.
+incremental = true
+codegen-units = 256
+debug = 0
+strip = "debuginfo"
