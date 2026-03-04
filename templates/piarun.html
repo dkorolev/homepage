@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230f0f12'/><path d='M50 25 a20 20 0 0 1 0 40 a20 20 0 0 1 0-40 M50 35 a10 10 0 0 0 0 20 a10 10 0 0 0 0-20' fill='%2322c55e'/><rect x='44' y='60' width='12' height='18' rx='3' fill='%2322c55e'/></svg>">
+  <style>
+    :root {
+      --bg: #0f0f12;
+      --surface: #1a1a1f;
+      --text: #e4e4e7;
+      --muted: #71717a;
+      --accent: #22c55e;
+      --accent-dim: #16a34a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      line-height: 1.6;
+    }
+    .card {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 2rem 2.5rem;
+      max-width: 28rem;
+      width: 100%;
+      border: 1px solid rgba(255,255,255,0.06);
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+    h1 {
+      margin: 0 0 0.5rem;
+      font-size: 1.5rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--accent);
+      background: rgba(34, 197, 94, 0.12);
+      padding: 0.25rem 0.6rem;
+      border-radius: 6px;
+      margin-bottom: 1.25rem;
+    }
+    p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.9375rem;
+    }
+    .actions { margin-top: 1.5rem; display: flex; flex-direction: row; gap: 0.5rem; align-items: stretch; }
+    .btn {
+      appearance: none;
+      border: none;
+      border-radius: 8px;
+      padding: 0.6rem 1.25rem;
+      font-size: 0.9375rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+      background: #3f3f46;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .btn:hover:not(.loading):not(.success):not(.error) { background: #52525b; }
+    .btn.loading { background: #eab308; color: #0f0f12; cursor: wait; }
+    .btn.success { background: #22c55e; color: #0f0f12; cursor: default; }
+    .btn.error { background: #dc2626; color: #fff; cursor: default; }
+    #auth { flex: 1; }
+    #regen {
+      background: transparent;
+      color: #3b82f6;
+      font-size: 0.8125rem;
+    }
+    #regen:hover { color: #60a5fa; }
+    .cred-id {
+      margin-top: 1rem;
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+      font-size: 0.8125rem;
+      color: var(--muted);
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <span class="badge">HTTPS</span>
+    <h1>{{ title }}</h1>
+    <p>{{ message }}</p>
+    <div class="actions">
+      <button type="button" class="btn" id="auth" data-state="idle">Authenticate with passkey</button>
+      <button type="button" class="btn" id="regen">Generate new passkey</button>
+    </div>
+    <p class="cred-id" id="credid" style="display:none"></p>
+  </div>
+  <script>
+    (function() {
+      const authBtn = document.getElementById('auth');
+      const regenBtn = document.getElementById('regen');
+      const credIdEl = document.getElementById('credid');
+
+      function base64urlToBuffer(s) {
+        s = s.replace(/-/g, '+').replace(/_/g, '/');
+        while (s.length % 4) s += '=';
+        const raw = atob(s);
+        const buf = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+        return buf.buffer;
+      }
+
+      function bufToBase64url(buf) {
+        const bytes = new Uint8Array(buf);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      }
+
+      function prepareCreateOptions(opts) {
+        const pk = Object.assign({}, opts.publicKey);
+        pk.challenge = base64urlToBuffer(pk.challenge);
+        pk.user = Object.assign({}, pk.user);
+        pk.user.id = base64urlToBuffer(pk.user.id);
+        if (pk.excludeCredentials) {
+          pk.excludeCredentials = pk.excludeCredentials.map(c =>
+            Object.assign({}, c, { id: base64urlToBuffer(c.id) })
+          );
+        }
+        return { publicKey: pk };
+      }
+
+      function prepareGetOptions(opts) {
+        const pk = Object.assign({}, opts.publicKey);
+        pk.challenge = base64urlToBuffer(pk.challenge);
+        if (pk.allowCredentials) {
+          pk.allowCredentials = pk.allowCredentials.map(c =>
+            Object.assign({}, c, { id: base64urlToBuffer(c.id) })
+          );
+        }
+        return { publicKey: pk };
+      }
+
+      function setState(btn, state, label) {
+        btn.className = btn.className.replace(/\s*(loading|success|error)/g, '').trim();
+        if (state === 'loading') btn.classList.add('loading');
+        else if (state === 'success') btn.classList.add('success');
+        else if (state === 'error') btn.classList.add('error');
+        btn.dataset.state = state;
+        if (label) btn.textContent = label;
+      }
+
+      function resetToIdle() {
+        setState(authBtn, 'idle', 'Authenticate with passkey');
+      }
+
+      async function doAuth() {
+        if (authBtn.dataset.state === 'loading') return;
+        setState(authBtn, 'loading', 'Waiting\u2026');
+        try {
+          const optRes = await fetch('/piarun/webauthn/auth/options', { method: 'POST' });
+          const optJson = await optRes.json();
+          if (!optRes.ok) {
+            setState(authBtn, 'error', 'Failed');
+            return;
+          }
+          const cred = await navigator.credentials.get(prepareGetOptions(optJson));
+          if (!cred) {
+            setState(authBtn, 'error', 'Failed');
+            return;
+          }
+          const payload = {
+            id: cred.id,
+            rawId: bufToBase64url(cred.rawId),
+            type: cred.type,
+            response: {
+              clientDataJSON: bufToBase64url(cred.response.clientDataJSON),
+              authenticatorData: bufToBase64url(cred.response.authenticatorData),
+              signature: bufToBase64url(cred.response.signature),
+              userHandle: cred.response.userHandle ? bufToBase64url(cred.response.userHandle) : null
+            }
+          };
+          const verifyRes = await fetch('/piarun/webauthn/auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const verifyJson = await verifyRes.json();
+          if (verifyRes.ok && verifyJson.ok) {
+            setState(authBtn, 'success', 'Authenticated');
+            if (verifyJson.cred_id) {
+              credIdEl.textContent = 'CRED_ID: ' + verifyJson.cred_id;
+              credIdEl.style.display = '';
+            }
+          } else {
+            setState(authBtn, 'error', 'Failed');
+            credIdEl.style.display = 'none';
+          }
+        } catch (e) {
+          console.error('auth error', e);
+          setState(authBtn, 'error', 'Failed');
+        }
+      }
+
+      async function doRegister() {
+        regenBtn.disabled = true;
+        try {
+          const optRes = await fetch('/piarun/webauthn/register/options', { method: 'POST' });
+          const optJson = await optRes.json();
+          if (!optRes.ok) { regenBtn.disabled = false; return; }
+          const cred = await navigator.credentials.create(prepareCreateOptions(optJson));
+          if (!cred) { regenBtn.disabled = false; return; }
+          const payload = {
+            id: cred.id,
+            rawId: bufToBase64url(cred.rawId),
+            type: cred.type,
+            response: {
+              clientDataJSON: bufToBase64url(cred.response.clientDataJSON),
+              attestationObject: bufToBase64url(cred.response.attestationObject)
+            }
+          };
+          const verifyRes = await fetch('/piarun/webauthn/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (verifyRes.ok) {
+            resetToIdle();
+          }
+          regenBtn.disabled = false;
+        } catch (e) {
+          console.error('register error', e);
+          regenBtn.disabled = false;
+        }
+      }
+
+      authBtn.addEventListener('click', doAuth);
+      regenBtn.addEventListener('click', doRegister);
+    })();
+  </script>
+</body>
+</html>

@@ -1,3 +1,6 @@
+mod webauthn;
+
+use askama::Template;
 use axum::{
   extract::{Form, Query, Request, State},
   handler::HandlerWithoutStateExt,
@@ -15,6 +18,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tower_http::services::ServeDir;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use url::Url;
+use webauthn_rs::prelude::*;
 
 // -- CLI arguments.
 
@@ -48,6 +53,10 @@ struct Args {
   /// Path to TLS private key (PEM).
   #[arg(long, required_unless_present = "letsencrypt")]
   key: Option<PathBuf>,
+
+  /// Path to the JSONL file for registered passkeys.
+  #[arg(long)]
+  keys_jsonl: PathBuf,
 }
 
 // -- TLS certificate resolution, following local_ssl_rust.
@@ -283,6 +292,29 @@ async fn zoom_redirect() -> impl IntoResponse {
   Redirect::permanent(ZOOM_URL)
 }
 
+// -- Piarun passkey page (Askama template).
+
+#[derive(Template)]
+#[template(path = "piarun.html")]
+struct PiarunTemplate {
+  title: String,
+  message: String,
+}
+
+async fn piarun_page() -> impl IntoResponse {
+  let t = PiarunTemplate {
+    title: "Piarun".to_string(),
+    message: "Authenticate with a passkey or register a new one.".to_string(),
+  };
+  match t.render() {
+    Ok(html) => Html(html).into_response(),
+    Err(e) => {
+      tracing::error!(%e, "piarun template render failed");
+      (StatusCode::INTERNAL_SERVER_ERROR, "template error").into_response()
+    }
+  }
+}
+
 /// Middleware: redirect based on Host header (e.g. zoom.dima.ai -> Zoom).
 async fn host_redirects(headers: HeaderMap, request: Request, next: middleware::Next) -> Response {
   if let Some(host) = headers.get(header::HOST) {
@@ -358,6 +390,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   tracing::info!("cert: {}", cert.display());
   tracing::info!("key:  {}", key.display());
 
+  // -- Initialize WebAuthn for /piarun.
+  let origin_str =
+    if port_https == 443 { format!("https://{}", fqdn) } else { format!("https://{}:{}", fqdn, port_https) };
+  let origin = Url::parse(&origin_str).map_err(|e| format!("origin URL: {}", e))?;
+  let webauthn_instance = WebauthnBuilder::new(&fqdn, &origin)
+    .map_err(|e| format!("webauthn builder: {}", e))?
+    .build()
+    .map_err(|e| format!("webauthn build: {}", e))?;
+  let keys_jsonl = args.keys_jsonl;
+  tracing::info!("keys JSONL: {}", keys_jsonl.display());
+  let webauthn_state = Arc::new(webauthn::AppState {
+    webauthn: webauthn_instance,
+    credentials: Arc::new(tokio::sync::RwLock::new(webauthn::load_credentials(&keys_jsonl))),
+    pending_reg: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+    pending_auth: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+    keys_jsonl,
+  });
+
   // -- Resolve the static directory.
   // Binary lives in target/release/ or target/debug/, so go two levels up for the project root.
   let project_root = std::env::current_exe()
@@ -393,7 +443,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     .route("/r", get(redirect_get).post(redirect_post))
     .route("/blog", get(blog_redirect))
     .route("/blog/chinese/invited-technical-cofounder", get(blog_chinese_redirect))
-    .route("/zoom", get(zoom_redirect));
+    .route("/zoom", get(zoom_redirect))
+    .route("/piarun", get(piarun_page));
 
   if debug {
     app = app.route("/kill", get(kill));
@@ -403,6 +454,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     .nest_service("/static", ServeDir::new(&static_dir))
     .nest_service("/.well-known", ServeDir::new(&static_dir))
     .with_state(state)
+    .merge(webauthn::router(webauthn_state))
     .layer(middleware::from_fn(host_redirects));
 
   // -- HTTP listeners (redirect to HTTPS), bind IPv4 and IPv6.
