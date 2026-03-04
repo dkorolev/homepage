@@ -165,7 +165,7 @@
         if (authBtn.dataset.state === 'loading') return;
         setState(authBtn, 'loading', 'Waiting\u2026');
         try {
-          const optRes = await fetch('/piarun/webauthn/auth/options', { method: 'POST' });
+          const optRes = await fetch('/passkey/webauthn/auth/options', { method: 'POST' });
           const optJson = await optRes.json();
           if (!optRes.ok) {
             setState(authBtn, 'error', 'Failed');
@@ -187,7 +187,7 @@
               userHandle: cred.response.userHandle ? bufToBase64url(cred.response.userHandle) : null
             }
           };
-          const verifyRes = await fetch('/piarun/webauthn/auth', {
+          const verifyRes = await fetch('/passkey/webauthn/auth', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -212,7 +212,7 @@
       async function doRegister() {
         regenBtn.disabled = true;
         try {
-          const optRes = await fetch('/piarun/webauthn/register/options', { method: 'POST' });
+          const optRes = await fetch('/passkey/webauthn/register/options', { method: 'POST' });
           const optJson = await optRes.json();
           if (!optRes.ok) { regenBtn.disabled = false; return; }
           const cred = await navigator.credentials.create(prepareCreateOptions(optJson));
@@ -226,7 +226,7 @@
               attestationObject: bufToBase64url(cred.response.attestationObject)
             }
           };
-          const verifyRes = await fetch('/piarun/webauthn/register', {
+          const verifyRes = await fetch('/passkey/webauthn/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)

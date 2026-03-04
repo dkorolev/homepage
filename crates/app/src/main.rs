@@ -228,7 +228,7 @@ fn render_home(debug: bool) -> String {
 
   // Debug links.
   if debug {
-    for (href, name) in [("/piarun", "Passkey"), ("/login", "OAuth2"), ("/mcpclient", "MCP Client")] {
+    for (href, name) in [("/passkey", "Passkey"), ("/login", "OAuth2"), ("/mcpclient", "MCP Client")] {
       html.push_str(&format!(
         "    <li><span class=\"headerLine\"><a href=\"{}\" class=\"debug\" style=\"color: #ff8c00 !important;\">{}</a></span></li>\n",
         href, name
@@ -374,7 +374,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   tracing::info!("cert: {}", cert.display());
   tracing::info!("key:  {}", key.display());
 
-  // -- Initialize WebAuthn for /piarun.
+  // -- Initialize WebAuthn for /passkey.
   let origin_str =
     if port_https == 443 { format!("https://{}", fqdn) } else { format!("https://{}:{}", fqdn, port_https) };
   let keys_jsonl = args.keys_jsonl;

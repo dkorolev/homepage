@@ -113,38 +113,38 @@ fn append_credential(state: &AppState, passkey: &Passkey) {
   }
 }
 
-// -- Piarun passkey page (Askama template).
+// -- Passkey page (Askama template).
 
 #[derive(Template)]
-#[template(path = "piarun.html")]
-struct PiarunTemplate {
+#[template(path = "passkey.html")]
+struct PasskeyTemplate {
   title: String,
   message: String,
 }
 
-async fn piarun_page() -> impl IntoResponse {
-  let t = PiarunTemplate {
-    title: "Piarun".to_string(),
+async fn passkey_page() -> impl IntoResponse {
+  let t = PasskeyTemplate {
+    title: "Passkey".to_string(),
     message: "Authenticate with a passkey or register a new one.".to_string(),
   };
   match t.render() {
     Ok(html) => Html(html).into_response(),
     Err(e) => {
-      tracing::error!(%e, "piarun template render failed");
+      tracing::error!(%e, "passkey template render failed");
       (StatusCode::INTERNAL_SERVER_ERROR, "template error").into_response()
     }
   }
 }
 
-/// Routes are mounted under `/piarun/...`.
+/// Routes are mounted under `/passkey/...`.
 pub fn router(state: Arc<AppState>) -> Router {
   Router::new()
-    .route("/piarun", get(piarun_page))
-    .route("/piarun/webauthn/status", get(status))
-    .route("/piarun/webauthn/register/options", post(register_options))
-    .route("/piarun/webauthn/register", post(register_verify))
-    .route("/piarun/webauthn/auth/options", post(auth_options))
-    .route("/piarun/webauthn/auth", post(auth_verify))
+    .route("/passkey", get(passkey_page))
+    .route("/passkey/webauthn/status", get(status))
+    .route("/passkey/webauthn/register/options", post(register_options))
+    .route("/passkey/webauthn/register", post(register_verify))
+    .route("/passkey/webauthn/auth/options", post(auth_options))
+    .route("/passkey/webauthn/auth", post(auth_verify))
     .with_state(state)
 }
 
