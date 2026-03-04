@@ -174,7 +174,7 @@ fn render_home(debug: bool) -> String {
   );
 
   // Title.
-  html.push_str(&format!("<title>dima.ai | {}</title>\n", NAME));
+  html.push_str(&format!("<title>{}</title>\n", NAME));
 
   // Favicon.
   html.push_str("<link rel=\"icon\" type=\"image/svg+xml\" href=\"/static/favicon.svg\" sizes=\"any\" />\n");
