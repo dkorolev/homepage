@@ -163,11 +163,12 @@ ul li + li {
 /* Debug links */
 .headerLine a.debug,
 .headerLine a.debug:visited {
-  color: rgba(200, 0, 0, 0.82);
+  color: rgba(220, 120, 0, 0.95) !important;
 }
 
-.headerLine a.debug:hover {
-  color: rgba(220, 0, 0, 0.92);
+.headerLine a.debug:hover,
+.headerLine a.debug:active {
+  color: rgba(255, 140, 0, 0.98) !important;
 }
 
 /* Mobile */
