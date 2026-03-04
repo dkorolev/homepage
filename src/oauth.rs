@@ -1,4 +1,4 @@
-//! OAuth 2.0 login: manual Authorization Code flow with Google, GitHub and XMemory.
+//! OAuth 2.0 login: manual Authorization Code flow with Google, GitHub and topsecret.
 
 use askama::Template;
 use axum::{
@@ -19,7 +19,7 @@ use tokio::sync::RwLock;
 enum Provider {
   Google,
   GitHub,
-  XMemory,
+  TopSecret,
 }
 
 impl Provider {
@@ -27,7 +27,7 @@ impl Provider {
     match s {
       "google" => Some(Self::Google),
       "github" => Some(Self::GitHub),
-      "xmemory" => Some(Self::XMemory),
+      "xmemory" => Some(Self::TopSecret),
       _ => None,
     }
   }
@@ -36,7 +36,7 @@ impl Provider {
     match self {
       Self::Google => "google",
       Self::GitHub => "github",
-      Self::XMemory => "xmemory",
+      Self::TopSecret => "xmemory",
     }
   }
 
@@ -44,7 +44,7 @@ impl Provider {
     match self {
       Self::Google => "google",
       Self::GitHub => "github",
-      Self::XMemory => "xmemory",
+      Self::TopSecret => "topsecret",
     }
   }
 
@@ -52,7 +52,7 @@ impl Provider {
     match self {
       Self::Google => "https://accounts.google.com/o/oauth2/v2/auth",
       Self::GitHub => "https://github.com/login/oauth/authorize",
-      Self::XMemory => "https://dk-oauth2.xmemory.ai/authorize",
+      Self::TopSecret => "https://dk-oauth2.xmemory.ai/authorize",
     }
   }
 
@@ -60,7 +60,7 @@ impl Provider {
     match self {
       Self::Google => "https://oauth2.googleapis.com/token",
       Self::GitHub => "https://github.com/login/oauth/access_token",
-      Self::XMemory => "https://dk-oauth2.xmemory.ai/token",
+      Self::TopSecret => "https://dk-oauth2.xmemory.ai/token",
     }
   }
 
@@ -68,7 +68,7 @@ impl Provider {
     match self {
       Self::Google => "https://www.googleapis.com/oauth2/v3/userinfo",
       Self::GitHub => "https://api.github.com/user",
-      Self::XMemory => "https://dk-oauth2.xmemory.ai/userinfo",
+      Self::TopSecret => "https://dk-oauth2.xmemory.ai/userinfo",
     }
   }
 
@@ -76,7 +76,7 @@ impl Provider {
     match self {
       Self::Google => "openid email profile",
       Self::GitHub => "read:user user:email",
-      Self::XMemory => "openid read write",
+      Self::TopSecret => "openid read write",
     }
   }
 }
@@ -113,15 +113,15 @@ pub fn build_state(base_url: &str) -> Arc<OAuthState> {
   }
 
   {
-    tracing::info!("OAuth: XMemory configured");
-    providers.insert(Provider::XMemory, ProviderConfig {
+    tracing::info!("OAuth: topsecret configured");
+    providers.insert(Provider::TopSecret, ProviderConfig {
       client_id: "default-client".to_string(),
       client_secret: "default-client-secret".to_string(),
     });
   }
 
   if providers.len() == 1 {
-    tracing::info!("OAuth: only XMemory configured (set GOOGLE_CLIENT_ID/SECRET or GITHUB_CLIENT_ID/SECRET for more)");
+    tracing::info!("OAuth: only topsecret configured (set GOOGLE_CLIENT_ID/SECRET or GITHUB_CLIENT_ID/SECRET for more)");
   }
 
   Arc::new(OAuthState {
@@ -177,7 +177,7 @@ async fn login_debug() -> impl IntoResponse {
 }
 
 async fn login_page(State(state): State<Arc<OAuthState>>) -> impl IntoResponse {
-  let order = [Provider::Google, Provider::GitHub, Provider::XMemory];
+  let order = [Provider::Google, Provider::GitHub, Provider::TopSecret];
   let providers: Vec<ProviderInfo> = order
     .iter()
     .filter(|p| state.providers.contains_key(p))
@@ -332,7 +332,7 @@ async fn oauth_callback(
       userinfo.get("email").and_then(|v| v.as_str()).unwrap_or("").to_string(),
       userinfo.get("avatar_url").and_then(|v| v.as_str()).unwrap_or("").to_string(),
     ),
-    Provider::XMemory => (
+    Provider::TopSecret => (
       userinfo.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
       userinfo.get("email").and_then(|v| v.as_str()).unwrap_or("").to_string(),
       userinfo.get("picture").and_then(|v| v.as_str()).unwrap_or("").to_string(),
