@@ -187,6 +187,9 @@ fn render_home() -> String {
   // Title.
   html.push_str(&format!("<title>{}</title>\n", NAME));
 
+  // Favicon.
+  html.push_str("<link rel=\"icon\" type=\"image/svg+xml\" href=\"/static/favicon.svg\" sizes=\"any\" />\n");
+
   // CSS.
   html.push_str("<link href=\"static/css.css\" rel=\"stylesheet\" />\n");
 
