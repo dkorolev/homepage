@@ -332,6 +332,11 @@ async fn start_oauth(Path(slug): Path<String>, State(state): State<Arc<OAuthStat
     url.push_str("&code_challenge_method=S256");
   }
 
+  if provider == Provider::TopSecret {
+    url.push_str("&resource=");
+    url.push_str(&urlencod("https://mcp.dima.ai"));
+  }
+
   if provider == Provider::Google {
     url.push_str("&prompt=consent");
   }
