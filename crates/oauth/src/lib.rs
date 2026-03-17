@@ -201,6 +201,8 @@ struct LoginResultTemplate {
   raw_json: String,
   error_message: String,
   session_id: String,
+  /// RFC-compliant curl to request what the token grants (UserInfo / resource).
+  curl_userinfo: String,
   git_hash: &'static str,
 }
 
@@ -494,7 +496,14 @@ async fn oauth_callback(
   let session_id = uuid::Uuid::new_v4().to_string();
   state.sessions.write().await.insert(
     session_id.clone(),
-    SessionInfo { provider, access_token },
+    SessionInfo { provider, access_token: access_token.clone() },
+  );
+
+  // RFC: Bearer token request to UserInfo endpoint to see what this token grants access to.
+  let curl_userinfo = format!(
+    "curl -H \"Authorization: Bearer {}\" \"{}\"",
+    access_token.replace('\\', "\\\\").replace('"', "\\\""),
+    userinfo_url
   );
 
   let t = LoginResultTemplate {
@@ -506,6 +515,7 @@ async fn oauth_callback(
     raw_json,
     error_message: String::new(),
     session_id,
+    curl_userinfo,
     git_hash: env!("GIT_HASH"),
   };
   match t.render() {
@@ -527,6 +537,7 @@ fn render_error(message: &str, provider_name: &str) -> axum::response::Response 
     raw_json: String::new(),
     error_message: message.to_string(),
     session_id: String::new(),
+    curl_userinfo: String::new(),
     git_hash: env!("GIT_HASH"),
   };
   match t.render() {

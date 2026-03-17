@@ -154,6 +154,19 @@
       color: #ef4444;
       font-size: 0.9375rem;
     }
+    .copy-curl-btn {
+      padding: 0.4rem 0.9rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: var(--text);
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .copy-curl-btn:hover {
+      background: rgba(255,255,255,0.12);
+    }
   </style>
 </head>
 <body>
@@ -183,6 +196,26 @@
       <summary>Raw userinfo JSON</summary>
       <pre>{{ raw_json }}</pre>
     </details>
+    {% endif %}
+    {% if success && !curl_userinfo.is_empty() %}
+    <details style="margin-top: 1rem;">
+      <summary>Request what this token grants (UserInfo)</summary>
+      <pre id="curl-pre" style="margin-bottom: 0.75rem;">{{ curl_userinfo }}</pre>
+      <button type="button" id="copy-curl-btn" class="copy-curl-btn" data-curl="{{ curl_userinfo }}">Copy curl</button>
+    </details>
+    <script>
+      (function() {
+        var btn = document.getElementById('copy-curl-btn');
+        if (btn) btn.addEventListener('click', function() {
+          var cmd = this.getAttribute('data-curl');
+          if (cmd && navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(cmd);
+            this.textContent = 'Copied!';
+            setTimeout(function() { btn.textContent = 'Copy curl'; }, 1500);
+          }
+        });
+      })();
+    </script>
     {% endif %}
     {% else %}
     <span class="badge badge-error">Error</span>
