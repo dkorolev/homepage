@@ -27,7 +27,7 @@ impl Provider {
     match s {
       "google" => Some(Self::Google),
       "github" => Some(Self::GitHub),
-      "xmemory" => Some(Self::TopSecret),
+      "topsecret" => Some(Self::TopSecret),
       _ => None,
     }
   }
@@ -36,7 +36,7 @@ impl Provider {
     match self {
       Self::Google => "google",
       Self::GitHub => "github",
-      Self::TopSecret => "xmemory",
+      Self::TopSecret => "topsecret",
     }
   }
 
@@ -52,7 +52,7 @@ impl Provider {
     match self {
       Self::Google => "https://accounts.google.com/o/oauth2/v2/auth",
       Self::GitHub => "https://github.com/login/oauth/authorize",
-      Self::TopSecret => "https://dk-oauth2.xmemory.ai/authorize",
+      Self::TopSecret => "", // use state.topsecret_issuer_base
     }
   }
 
@@ -60,7 +60,7 @@ impl Provider {
     match self {
       Self::Google => "https://oauth2.googleapis.com/token",
       Self::GitHub => "https://github.com/login/oauth/access_token",
-      Self::TopSecret => "https://dk-oauth2.xmemory.ai/token",
+      Self::TopSecret => "",
     }
   }
 
@@ -68,7 +68,7 @@ impl Provider {
     match self {
       Self::Google => "https://www.googleapis.com/oauth2/v3/userinfo",
       Self::GitHub => "https://api.github.com/user",
-      Self::TopSecret => "https://dk-oauth2.xmemory.ai/userinfo",
+      Self::TopSecret => "",
     }
   }
 
@@ -76,13 +76,14 @@ impl Provider {
     match self {
       Self::Google => "openid email profile",
       Self::GitHub => "read:user user:email",
-      Self::TopSecret => "openid profile",
+      Self::TopSecret => "openid profile email read write",
     }
   }
 }
 
 // -- State.
 
+#[derive(Clone)]
 struct ProviderConfig {
   client_id: String,
   client_secret: String,
@@ -90,6 +91,10 @@ struct ProviderConfig {
 
 struct PendingAuth {
   provider: Provider,
+  /// PKCE code_verifier for TopSecret (server may require pkce_required: true).
+  code_verifier: Option<String>,
+  /// For TopSecret dynamic client: credentials from POST /register (used at callback for token exchange).
+  topsecret_config: Option<ProviderConfig>,
 }
 
 struct SessionInfo {
@@ -99,6 +104,8 @@ struct SessionInfo {
 
 pub struct OAuthState {
   providers: HashMap<Provider, ProviderConfig>,
+  /// Issuer base URL for TopSecret (from TOPSECRET_OAUTH2_URL). TopSecret is only available when set.
+  topsecret_issuer_base: Option<String>,
   pending: Arc<RwLock<HashMap<String, PendingAuth>>>,
   sessions: Arc<RwLock<HashMap<String, SessionInfo>>>,
   http_client: reqwest::Client,
@@ -118,25 +125,55 @@ pub fn build_state(base_url: &str) -> Arc<OAuthState> {
     providers.insert(Provider::GitHub, ProviderConfig { client_id: id, client_secret: secret });
   }
 
-  {
-    tracing::info!("OAuth: topsecret configured");
-    providers.insert(Provider::TopSecret, ProviderConfig {
-      client_id: "default-client".to_string(),
-      client_secret: "default-client-secret".to_string(),
-    });
+  let topsecret_issuer_base = std::env::var("TOPSECRET_OAUTH2_URL").ok().map(|u| u.trim_end_matches('/').to_string());
+  if topsecret_issuer_base.is_some() {
+    tracing::info!("OAuth: TopSecret configured via TOPSECRET_OAUTH2_URL");
   }
 
-  if providers.len() == 1 {
-    tracing::info!("OAuth: only topsecret configured (set GOOGLE_CLIENT_ID/SECRET or GITHUB_CLIENT_ID/SECRET for more)");
+  if providers.len() == 1 && topsecret_issuer_base.is_none() {
+    tracing::info!("OAuth: only one provider (set GOOGLE_CLIENT_ID/SECRET or GITHUB_CLIENT_ID/SECRET or TOPSECRET_OAUTH2_URL for more)");
   }
 
   Arc::new(OAuthState {
     providers,
+    topsecret_issuer_base,
     pending: Arc::new(RwLock::new(HashMap::new())),
     sessions: Arc::new(RwLock::new(HashMap::new())),
     http_client: reqwest::Client::new(),
     base_url: base_url.to_string(),
   })
+}
+
+/// RFC 7591 dynamic client registration. `redirect_uri` must be the exact callback URL used in the authorization request.
+async fn register_dynamic_client(
+  issuer_base: &str,
+  redirect_uri: &str,
+  scope: &str,
+  http_client: &reqwest::Client,
+) -> Option<(String, String)> {
+  let register_url = format!("{}/register", issuer_base.trim_end_matches('/'));
+  let body = serde_json::json!({
+    "redirect_uris": [redirect_uri],
+    "scope": scope
+  });
+  let resp = http_client
+    .post(&register_url)
+    .header("Content-Type", "application/json")
+    .json(&body)
+    .send()
+    .await
+    .ok()?;
+  if !resp.status().is_success() {
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    tracing::warn!("OAuth DCR failed: {} {}", status, text);
+    return None;
+  }
+  let json: serde_json::Value = resp.json().await.ok()?;
+  let client_id = json.get("client_id").and_then(|v| v.as_str()).map(String::from)?;
+  let client_secret = json.get("client_secret").and_then(|v| v.as_str()).map(String::from).unwrap_or_default();
+  tracing::info!("OAuth DCR success: client_id={}", client_id);
+  Some((client_id, client_secret))
 }
 
 // -- Templates.
@@ -184,6 +221,7 @@ async fn login_debug() -> impl IntoResponse {
     "GOOGLE_CLIENT_SECRET",
     "GITHUB_CLIENT_ID",
     "GITHUB_CLIENT_SECRET",
+    "TOPSECRET_OAUTH2_URL",
   ];
   let lines: Vec<String> = vars
     .iter()
@@ -199,7 +237,10 @@ async fn login_page(State(state): State<Arc<OAuthState>>) -> impl IntoResponse {
   let order = [Provider::Google, Provider::GitHub, Provider::TopSecret];
   let providers: Vec<ProviderInfo> = order
     .iter()
-    .filter(|p| state.providers.contains_key(p))
+    .filter(|p| {
+      state.providers.contains_key(p)
+        || (**p == Provider::TopSecret && state.topsecret_issuer_base.is_some())
+    })
     .map(|p| ProviderInfo { slug: p.slug(), name: p.display_name() })
     .collect();
   let t = LoginTemplate { providers, git_hash: env!("GIT_HASH") };
@@ -217,23 +258,77 @@ async fn start_oauth(Path(slug): Path<String>, State(state): State<Arc<OAuthStat
     Some(p) => p,
     None => return (StatusCode::NOT_FOUND, "unknown provider").into_response(),
   };
-  let config = match state.providers.get(&provider) {
-    Some(c) => c,
-    None => return (StatusCode::NOT_FOUND, "provider not configured").into_response(),
+
+  // TopSecret: always use a new client via POST /register (dynamic client, no caching).
+  let redirect_uri = format!("{}/login/{}/callback", state.base_url.trim_end_matches('/'), provider.slug());
+  let (config, topsecret_config) = if provider == Provider::TopSecret {
+    let issuer_base = match &state.topsecret_issuer_base {
+      Some(b) => b.as_str(),
+      None => return (StatusCode::NOT_FOUND, "provider not configured").into_response(),
+    };
+    let config_opt = register_dynamic_client(
+      issuer_base,
+      &redirect_uri,
+      provider.scopes(),
+      &state.http_client,
+    )
+    .await;
+    let config = match config_opt {
+      Some((id, secret)) => ProviderConfig { client_id: id, client_secret: secret },
+      None => {
+        tracing::warn!("OAuth: TopSecret /register failed");
+        return (
+          StatusCode::SERVICE_UNAVAILABLE,
+          "OAuth: client registration failed. Try again.",
+        )
+          .into_response();
+      }
+    };
+    (config.clone(), Some(config))
+  } else {
+    let config = match state.providers.get(&provider) {
+      Some(c) => c.clone(),
+      None => return (StatusCode::NOT_FOUND, "provider not configured").into_response(),
+    };
+    (config, None)
   };
 
   let csrf_state = uuid::Uuid::new_v4().to_string();
-  state.pending.write().await.insert(csrf_state.clone(), PendingAuth { provider });
+  let (code_verifier, code_challenge) = if provider == Provider::TopSecret {
+    let (v, c) = pkce_pair();
+    (Some(v), Some(c))
+  } else {
+    (None, None)
+  };
+  state.pending.write().await.insert(
+    csrf_state.clone(),
+    PendingAuth {
+      provider,
+      code_verifier,
+      topsecret_config,
+    },
+  );
 
-  let redirect_uri = format!("{}/login/{}/callback", state.base_url, provider.slug());
+  let auth_url = match provider {
+    Provider::TopSecret => format!(
+      "{}/authorize",
+      state.topsecret_issuer_base.as_deref().unwrap_or("")
+    ),
+    _ => provider.auth_url().to_string(),
+  };
   let mut url = format!(
     "{}?client_id={}&redirect_uri={}&scope={}&state={}&response_type=code",
-    provider.auth_url(),
+    auth_url,
     urlencod(&config.client_id),
     urlencod(&redirect_uri),
     urlencod(provider.scopes()),
     urlencod(&csrf_state),
   );
+  if let Some(ref ch) = code_challenge {
+    url.push_str("&code_challenge=");
+    url.push_str(&urlencod(ch));
+    url.push_str("&code_challenge_method=S256");
+  }
 
   if provider == Provider::Google {
     url.push_str("&prompt=consent");
@@ -272,34 +367,63 @@ async fn oauth_callback(
     None => return render_error("Missing state parameter", provider.display_name()),
   };
 
-  // Validate CSRF.
+  // Validate CSRF and retrieve PKCE verifier and (for TopSecret) dynamic client config.
   let pending = state.pending.write().await.remove(&csrf_state);
-  match pending {
-    Some(p) if p.provider == provider => {}
+  let (code_verifier, topsecret_config) = match pending {
+    Some(p) if p.provider == provider => (p.code_verifier, p.topsecret_config),
     _ => return render_error("Invalid or expired state (CSRF check failed)", provider.display_name()),
-  }
+  };
 
-  let config = match state.providers.get(&provider) {
-    Some(c) => c,
-    None => return render_error("Provider not configured", provider.display_name()),
+  let config = if provider == Provider::TopSecret {
+    topsecret_config.ok_or("missing dynamic client config")
+  } else {
+    state.providers.get(&provider).cloned().ok_or("provider not configured")
+  };
+  let config = match config {
+    Ok(c) => c,
+    Err(_) => return render_error("Provider not configured", provider.display_name()),
   };
 
   let redirect_uri = format!("{}/login/{}/callback", state.base_url, provider.slug());
+  let (token_url, userinfo_url) = match provider {
+    Provider::TopSecret => {
+      let base = state.topsecret_issuer_base.as_deref().unwrap_or("");
+      (format!("{}/token", base), format!("{}/userinfo", base))
+    }
+    _ => (provider.token_url().to_string(), provider.userinfo_url().to_string()),
+  };
 
-  // Exchange code for token.
-  let token_res = state
-    .http_client
-    .post(provider.token_url())
-    .header("Accept", "application/json")
-    .form(&[
-      ("code", code.as_str()),
-      ("client_id", config.client_id.as_str()),
-      ("client_secret", config.client_secret.as_str()),
-      ("redirect_uri", redirect_uri.as_str()),
-      ("grant_type", "authorization_code"),
-    ])
-    .send()
-    .await;
+  // Exchange code for token (include code_verifier when PKCE was used, e.g. TopSecret with pkce_required).
+  let token_res = if let Some(ref verifier) = code_verifier {
+    state
+      .http_client
+      .post(&token_url)
+      .header("Accept", "application/json")
+      .form(&[
+        ("code", code.as_str()),
+        ("client_id", config.client_id.as_str()),
+        ("client_secret", config.client_secret.as_str()),
+        ("redirect_uri", redirect_uri.as_str()),
+        ("grant_type", "authorization_code"),
+        ("code_verifier", verifier.as_str()),
+      ])
+      .send()
+      .await
+  } else {
+    state
+      .http_client
+      .post(&token_url)
+      .header("Accept", "application/json")
+      .form(&[
+        ("code", code.as_str()),
+        ("client_id", config.client_id.as_str()),
+        ("client_secret", config.client_secret.as_str()),
+        ("redirect_uri", redirect_uri.as_str()),
+        ("grant_type", "authorization_code"),
+      ])
+      .send()
+      .await
+  };
 
   let token_body: serde_json::Value = match token_res {
     Ok(resp) => match resp.json().await {
@@ -324,7 +448,7 @@ async fn oauth_callback(
   // Fetch user info.
   let userinfo_res = state
     .http_client
-    .get(provider.userinfo_url())
+    .get(&userinfo_url)
     .header("Authorization", format!("Bearer {}", access_token))
     .header("User-Agent", "homepage-oauth/1.0")
     .send()
@@ -426,7 +550,7 @@ async fn logout(State(state): State<Arc<OAuthState>>, Form(form): Form<LogoutFor
 
   let (provider_name, revoke_ok, revoke_detail) = if let Some(session) = session {
     let provider_name = session.provider.display_name().to_string();
-    let config = state.providers.get(&session.provider);
+    let config = state.providers.get(&session.provider).cloned();
 
     if let Some(config) = config {
       match session.provider {
@@ -485,7 +609,12 @@ async fn logout(State(state): State<Arc<OAuthState>>, Form(form): Form<LogoutFor
         }
       }
     } else {
-      (provider_name, false, "Provider not configured.".to_string())
+      // TopSecret uses dynamic client (no entry in providers); just clear session.
+      if session.provider == Provider::TopSecret {
+        (provider_name, true, "Session cleared.".to_string())
+      } else {
+        (provider_name, false, "Provider not configured.".to_string())
+      }
     }
   } else {
     ("unknown".to_string(), false, "Session not found (expired or already logged out).".to_string())
@@ -533,3 +662,18 @@ fn urlencod(s: &str) -> String {
 }
 
 const HEX: [u8; 16] = *b"0123456789ABCDEF";
+
+/// PKCE S256: returns (code_verifier, code_challenge). Verifier is 43–128 chars from [A-Za-z0-9-._~].
+fn pkce_pair() -> (String, String) {
+  use base64::Engine;
+  use sha2::Digest;
+  let verifier: String = (0..64)
+    .map(|_| {
+      const SET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+      SET[rand::random::<usize>() % SET.len()] as char
+    })
+    .collect();
+  let digest = sha2::Sha256::digest(verifier.as_bytes());
+  let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest);
+  (verifier, challenge)
+}

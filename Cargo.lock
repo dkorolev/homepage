@@ -889,9 +889,12 @@ version = "1.0.0"
 dependencies = [
  "askama",
  "axum",
+ "base64 0.22.1",
+ "rand 0.8.5",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tracing",
  "uuid",
