@@ -201,8 +201,10 @@ struct LoginResultTemplate {
   raw_json: String,
   error_message: String,
   session_id: String,
-  /// RFC-compliant curl to request what the token grants (UserInfo / resource).
+  /// RFC: UserInfo (OIDC/OAuth 2.0) curl.
   curl_userinfo: String,
+  /// RFC 7662: Token Introspection curl (POST application/x-www-form-urlencoded).
+  curl_introspect: String,
   git_hash: &'static str,
 }
 
@@ -392,12 +394,20 @@ async fn oauth_callback(
   };
 
   let redirect_uri = format!("{}/login/{}/callback", state.base_url, provider.slug());
-  let (token_url, userinfo_url) = match provider {
+  let (token_url, userinfo_url, introspect_url) = match provider {
     Provider::TopSecret => {
       let base = state.topsecret_issuer_base.as_deref().unwrap_or("");
-      (format!("{}/token", base), format!("{}/userinfo", base))
+      (
+        format!("{}/token", base),
+        format!("{}/userinfo", base),
+        Some(format!("{}/introspect", base)),
+      )
     }
-    _ => (provider.token_url().to_string(), provider.userinfo_url().to_string()),
+    _ => (
+      provider.token_url().to_string(),
+      provider.userinfo_url().to_string(),
+      None,
+    ),
   };
 
   // Exchange code for token (include code_verifier when PKCE was used, e.g. TopSecret with pkce_required).
@@ -504,12 +514,22 @@ async fn oauth_callback(
     SessionInfo { provider, access_token: access_token.clone() },
   );
 
-  // RFC: Bearer token request to UserInfo endpoint to see what this token grants access to.
+  // RFC: Bearer token request to UserInfo endpoint (OIDC / OAuth 2.0 resource).
+  let escaped_token = access_token.replace('\\', "\\\\").replace('"', "\\\"");
   let curl_userinfo = format!(
     "curl -H \"Authorization: Bearer {}\" \"{}\"",
-    access_token.replace('\\', "\\\\").replace('"', "\\\""),
+    escaped_token,
     userinfo_url
   );
+
+  // RFC 7662: Token Introspection (POST application/x-www-form-urlencoded).
+  let curl_introspect = introspect_url.map(|url| {
+    format!(
+      "curl -X POST \"{}\" -H \"Content-Type: application/x-www-form-urlencoded\" -d \"token={}\" -d \"token_type_hint=access_token\"",
+      url,
+      escaped_token
+    )
+  }).unwrap_or_default();
 
   let t = LoginResultTemplate {
     success: true,
@@ -521,6 +541,7 @@ async fn oauth_callback(
     error_message: String::new(),
     session_id,
     curl_userinfo,
+    curl_introspect,
     git_hash: env!("GIT_HASH"),
   };
   match t.render() {
@@ -543,6 +564,7 @@ fn render_error(message: &str, provider_name: &str) -> axum::response::Response 
     error_message: message.to_string(),
     session_id: String::new(),
     curl_userinfo: String::new(),
+    curl_introspect: String::new(),
     git_hash: env!("GIT_HASH"),
   };
   match t.render() {

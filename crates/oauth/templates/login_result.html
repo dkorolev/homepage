@@ -198,22 +198,31 @@
     </details>
     {% endif %}
     {% if success && !curl_userinfo.is_empty() %}
-    <details style="margin-top: 1rem;">
-      <summary>Request what this token grants (UserInfo)</summary>
-      <pre id="curl-pre" style="margin-bottom: 0.75rem;">{{ curl_userinfo }}</pre>
-      <button type="button" id="copy-curl-btn" class="copy-curl-btn" data-curl="{{ curl_userinfo }}">Copy curl</button>
+    <details style="margin-top: 1rem;" open>
+      <summary>Request what this token grants (RFC)</summary>
+      <p style="font-size: 0.8125rem; color: var(--muted); margin: 0.5rem 0 0.25rem;">UserInfo (OIDC / OAuth 2.0 Bearer)</p>
+      <pre class="curl-pre" style="margin-bottom: 0.5rem;">{{ curl_userinfo }}</pre>
+      <button type="button" class="copy-curl-btn" data-curl="{{ curl_userinfo }}">Copy curl</button>
+      {% if !curl_introspect.is_empty() %}
+      <p style="font-size: 0.8125rem; color: var(--muted); margin: 1rem 0 0.25rem;">Introspection (RFC 7662)</p>
+      <pre class="curl-pre" style="margin-bottom: 0.5rem;">{{ curl_introspect }}</pre>
+      <button type="button" class="copy-curl-btn" data-curl="{{ curl_introspect }}">Copy curl</button>
+      {% endif %}
     </details>
     <script>
       (function() {
-        var btn = document.getElementById('copy-curl-btn');
-        if (btn) btn.addEventListener('click', function() {
-          var cmd = this.getAttribute('data-curl');
-          if (cmd && navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(cmd);
-            this.textContent = 'Copied!';
-            setTimeout(function() { btn.textContent = 'Copy curl'; }, 1500);
-          }
-        });
+        function initCopy(btn) {
+          if (!btn) return;
+          btn.addEventListener('click', function() {
+            var cmd = this.getAttribute('data-curl');
+            if (cmd && navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(cmd);
+              this.textContent = 'Copied!';
+              setTimeout(function() { btn.textContent = 'Copy curl'; }, 1500);
+            }
+          });
+        }
+        document.querySelectorAll('.copy-curl-btn').forEach(initCopy);
       })();
     </script>
     {% endif %}
