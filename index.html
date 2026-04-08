@@ -62,6 +62,21 @@
   #matrix th { font-weight: 600; background: #8881; }
   #matrix td .label { font-weight: 600; }
   #matrix td .dur { display: block; font-size: 0.75rem; opacity: 0.75; }
+  #custom-tooltip {
+    position: fixed;
+    z-index: 1000;
+    background: #222;
+    color: #f0f0f0;
+    padding: 0.5rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    max-width: 40rem;
+    white-space: pre-wrap;
+    pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
   .cell-pending { background: #8881; color: #666; }
   .cell-running { background: #cfe2ff; color: #052c65; }
   .cell-ok      { background: #d4edda; color: #155724; }
@@ -255,6 +270,9 @@
         const td = document.createElement("td");
         td.className = "cell-pending";
         td.innerHTML = '<span class="label">—</span>';
+        td.addEventListener("mouseenter", onCellEnter);
+        td.addEventListener("mouseleave", onCellLeave);
+        td.addEventListener("mousemove", onCellMove);
         tr.appendChild(td);
         row.push(td);
       }
@@ -270,8 +288,69 @@
     td.className = `cell-${kind}`;
     const dur = durMs != null ? `<span class="dur">${(durMs / 1000).toFixed(2)}s</span>` : "";
     td.innerHTML = `<span class="label">${label}</span>${dur}`;
-    if (tooltip) td.title = tooltip;
-    else td.removeAttribute("title");
+    if (tooltip) td.dataset.tt = tooltip;
+    else delete td.dataset.tt;
+    // If the tooltip is currently showing this cell, refresh it live.
+    if (tooltipTarget === td) {
+      if (tooltip) tooltipEl.textContent = tooltip;
+      else hideTooltip();
+    }
+  }
+
+  // --- Custom tooltip with short show delay ---
+  const tooltipEl = document.createElement("div");
+  tooltipEl.id = "custom-tooltip";
+  tooltipEl.hidden = true;
+  document.body.appendChild(tooltipEl);
+
+  const TOOLTIP_DELAY_MS = 80;
+  let tooltipTimer = null;
+  let tooltipTarget = null;
+
+  function positionTooltip(x, y) {
+    const pad = 14;
+    // Temporarily make visible-but-offscreen to measure.
+    tooltipEl.hidden = false;
+    const rect = tooltipEl.getBoundingClientRect();
+    let left = x + pad;
+    let top = y + pad;
+    if (left + rect.width > window.innerWidth - 4)
+      left = Math.max(4, x - rect.width - pad);
+    if (top + rect.height > window.innerHeight - 4)
+      top = Math.max(4, y - rect.height - pad);
+    tooltipEl.style.left = left + "px";
+    tooltipEl.style.top = top + "px";
+  }
+
+  function showTooltipFor(td, x, y) {
+    const text = td.dataset.tt;
+    if (!text) return;
+    tooltipTarget = td;
+    tooltipEl.textContent = text;
+    positionTooltip(x, y);
+  }
+
+  function hideTooltip() {
+    if (tooltipTimer) { clearTimeout(tooltipTimer); tooltipTimer = null; }
+    tooltipTarget = null;
+    tooltipEl.hidden = true;
+  }
+
+  function onCellEnter(e) {
+    const td = e.currentTarget;
+    if (!td.dataset.tt) return;
+    const x = e.clientX, y = e.clientY;
+    if (tooltipTimer) clearTimeout(tooltipTimer);
+    tooltipTimer = setTimeout(() => {
+      tooltipTimer = null;
+      showTooltipFor(td, x, y);
+    }, TOOLTIP_DELAY_MS);
+  }
+  function onCellLeave() { hideTooltip(); }
+  function onCellMove(e) {
+    if (tooltipTarget === e.currentTarget && !tooltipEl.hidden) {
+      positionTooltip(e.clientX, e.clientY);
+    }
   }
 
   // Collect any ratelimit/diagnostic headers the browser is allowed to see.
