@@ -1,0 +1,659 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anthropic API playground</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    max-width: 60rem;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    line-height: 1.5;
+  }
+  h1 { font-size: 1.25rem; }
+  h2 { font-size: 1rem; margin-top: 2rem; }
+  label { font-weight: 600; }
+  .field { margin-top: 0.75rem; }
+  .field label { display: block; margin-bottom: 0.25rem; }
+  input[type="password"], input[type="number"] {
+    padding: 0.5rem;
+    font: inherit;
+    box-sizing: border-box;
+  }
+  input[type="password"] { width: 100%; }
+  input[type="number"] { width: 6rem; }
+  .row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; }
+  button {
+    padding: 0.5rem 1rem;
+    font: inherit;
+    cursor: pointer;
+  }
+  button:disabled { cursor: not-allowed; opacity: 0.5; }
+  #status {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #status.ok { background: #d4edda; color: #155724; }
+  #status.err { background: #f8d7da; color: #721c24; }
+  #status.info { background: #e2e3e5; color: #383d41; }
+  @media (prefers-color-scheme: dark) {
+    #status.ok { background: #1e3a24; color: #b8e6c1; }
+    #status.err { background: #3a1e22; color: #e6b8bd; }
+    #status.info { background: #2a2b2c; color: #c8c9ca; }
+  }
+  #matrix {
+    margin-top: 1rem;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.85rem;
+  }
+  #matrix th, #matrix td {
+    border: 1px solid #8884;
+    padding: 0.35rem 0.5rem;
+    text-align: center;
+    min-width: 6.5rem;
+  }
+  #matrix th { font-weight: 600; background: #8881; }
+  #matrix td .label { font-weight: 600; }
+  #matrix td .dur { display: block; font-size: 0.75rem; opacity: 0.75; }
+  #custom-tooltip {
+    position: fixed;
+    z-index: 1000;
+    background: #222;
+    color: #f0f0f0;
+    padding: 0.5rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    max-width: 40rem;
+    white-space: pre-wrap;
+    pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .cell-pending { background: #8881; color: #666; }
+  .cell-running { background: #cfe2ff; color: #052c65; }
+  .cell-ok      { background: #d4edda; color: #155724; }
+  .cell-wrong   { background: #fff3cd; color: #664d03; }
+  .cell-err     { background: #f8d7da; color: #721c24; }
+  .cell-abort   { background: #8881; color: #666; }
+  @media (prefers-color-scheme: dark) {
+    .cell-pending { background: #2a2b2c; color: #aaa; }
+    .cell-running { background: #14304d; color: #cfe2ff; }
+    .cell-ok      { background: #1e3a24; color: #b8e6c1; }
+    .cell-wrong   { background: #3d3a1a; color: #ffe69c; }
+    .cell-err     { background: #3a1e22; color: #e6b8bd; }
+    .cell-abort   { background: #2a2b2c; color: #aaa; }
+  }
+</style>
+</head>
+<body>
+  <h1>Anthropic API playground</h1>
+
+  <section id="step-1">
+    <p>Step 1 — paste an Anthropic API key. It stays in this tab and is sent only to <code>api.anthropic.com</code> over HTTPS.</p>
+    <div class="field">
+      <label for="key">API key</label>
+      <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-...">
+    </div>
+    <button id="continue-btn" type="button">Continue</button>
+  </section>
+
+  <section id="step-2" hidden>
+    <p>
+      Step 2 — choose a model and run a batch test.
+      <button id="change-key-btn" type="button">Change key</button>
+    </p>
+    <div class="field">
+      <label for="model">Model</label>
+      <select id="model"></select>
+    </div>
+
+    <h2>Batch arithmetic test</h2>
+    <div class="row">
+      <div class="field">
+        <label for="n">N (iterations per stream, max 8)</label>
+        <input id="n" type="number" min="1" max="8" value="5">
+      </div>
+      <div class="field">
+        <label for="k">K (parallel streams)</label>
+        <input id="k" type="number" min="1" value="3">
+      </div>
+      <div class="field">
+        <label for="pad">Extra payload bytes</label>
+        <input id="pad" type="number" min="0" value="0">
+      </div>
+      <button id="start-btn" type="button">Start</button>
+      <button id="cancel-btn" type="button" disabled>Cancel</button>
+    </div>
+    <div class="field">
+      <label><input id="log-all" type="checkbox"> Log every LLM response to console</label>
+    </div>
+
+    <div id="matrix-wrap"></div>
+  </section>
+
+  <div id="status" hidden></div>
+
+<script>
+  const API_VERSION = "2023-06-01";
+  const PREFERRED_MODEL_ID = "claude-sonnet-4-6";
+
+  const step1El      = document.getElementById("step-1");
+  const step2El      = document.getElementById("step-2");
+  const keyInput     = document.getElementById("key");
+  const continueBtn  = document.getElementById("continue-btn");
+  const changeKeyBtn = document.getElementById("change-key-btn");
+  const modelSelect  = document.getElementById("model");
+  const nInput       = document.getElementById("n");
+  const kInput       = document.getElementById("k");
+  const padInput     = document.getElementById("pad");
+  const startBtn     = document.getElementById("start-btn");
+  const cancelBtn    = document.getElementById("cancel-btn");
+  const logAllInput  = document.getElementById("log-all");
+  const statusEl     = document.getElementById("status");
+  const matrixWrap   = document.getElementById("matrix-wrap");
+
+  // Set after a successful key validation. While set, the API key input is
+  // hidden (step 1 section is hidden) and all further requests reuse it.
+  let apiKey = null;
+
+  let running = false;
+  let abortCtl = null;
+
+  function showStatus(kind, msg) {
+    statusEl.hidden = false;
+    statusEl.className = kind;
+    statusEl.textContent = msg;
+  }
+
+  function setRunning(on) {
+    running = on;
+    startBtn.disabled     = on;
+    changeKeyBtn.disabled = on;
+    modelSelect.disabled  = on;
+    nInput.disabled       = on;
+    kInput.disabled       = on;
+    padInput.disabled     = on;
+    cancelBtn.disabled    = !on;
+  }
+
+  function headers(key, withJson) {
+    const h = {
+      "x-api-key": key,
+      "anthropic-version": API_VERSION,
+      "anthropic-dangerous-direct-browser-access": "true",
+    };
+    if (withJson) h["content-type"] = "application/json";
+    return h;
+  }
+
+  // --- Step 1: validate key and load models ---
+  async function fetchAllModels(key) {
+    // Paginate in case more than the default page of models exists.
+    const all = [];
+    let afterId = null;
+    while (true) {
+      const url = new URL("https://api.anthropic.com/v1/models");
+      url.searchParams.set("limit", "1000");
+      if (afterId) url.searchParams.set("after_id", afterId);
+      const res = await fetch(url, { method: "GET", headers: headers(key, false) });
+      if (!res.ok) {
+        let detail = "";
+        try {
+          const err = await res.json();
+          detail = err?.error?.message || JSON.stringify(err);
+        } catch { detail = await res.text(); }
+        const e = new Error(`HTTP ${res.status}: ${detail}`);
+        e.status = res.status;
+        throw e;
+      }
+      const data = await res.json();
+      const page = Array.isArray(data.data) ? data.data : [];
+      all.push(...page);
+      if (!data.has_more || page.length === 0) break;
+      afterId = data.last_id || page[page.length - 1].id;
+    }
+    return all;
+  }
+
+  function populateModelDropdown(models) {
+    modelSelect.innerHTML = "";
+    // Sort newest first by created_at when available, then by id.
+    const sorted = [...models].sort((a, b) => {
+      const ta = a.created_at ? Date.parse(a.created_at) : 0;
+      const tb = b.created_at ? Date.parse(b.created_at) : 0;
+      if (ta !== tb) return tb - ta;
+      return String(a.id).localeCompare(String(b.id));
+    });
+    for (const m of sorted) {
+      const opt = document.createElement("option");
+      opt.value = m.id;
+      opt.textContent = m.display_name ? `${m.display_name} (${m.id})` : m.id;
+      modelSelect.appendChild(opt);
+    }
+    // Prefer Sonnet 4.6 if present.
+    const preferred = sorted.find(m => m.id === PREFERRED_MODEL_ID);
+    if (preferred) modelSelect.value = preferred.id;
+  }
+
+  function goToStep2() {
+    step1El.hidden = true;
+    step2El.hidden = false;
+  }
+
+  function goToStep1() {
+    // Clear state before returning to key entry.
+    apiKey = null;
+    modelSelect.innerHTML = "";
+    matrixWrap.innerHTML = "";
+    statusEl.hidden = true;
+    step2El.hidden = true;
+    step1El.hidden = false;
+    keyInput.focus();
+  }
+
+  continueBtn.addEventListener("click", async () => {
+    if (running) return;
+    const key = keyInput.value.trim();
+    if (!key) { showStatus("err", "Enter an API key first."); return; }
+
+    continueBtn.disabled = true;
+    keyInput.disabled = true;
+    showStatus("info", "Validating key and loading models...");
+    try {
+      const models = await fetchAllModels(key);
+      if (models.length === 0) {
+        showStatus("err", "Key is valid but returned no models.");
+        return;
+      }
+      apiKey = key;
+      populateModelDropdown(models);
+      goToStep2();
+      showStatus("ok", `Key is valid. ${models.length} model${models.length === 1 ? "" : "s"} available.`);
+    } catch (err) {
+      console.error("Key validation failed", err);
+      showStatus("err", `Key rejected: ${err.message}`);
+    } finally {
+      continueBtn.disabled = false;
+      keyInput.disabled = false;
+    }
+  });
+
+  changeKeyBtn.addEventListener("click", () => {
+    if (running) return;
+    goToStep1();
+  });
+
+  // --- Batch test ---
+  function randomTenDigit() {
+    // [1e9, 1e10) → 10 decimal digits, first digit 1..9.
+    return Math.floor(Math.random() * 9e9) + 1e9;
+  }
+
+  const LATIN = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  function randomLatinString(minLen, maxLen) {
+    const len = minLen + Math.floor(Math.random() * (maxLen - minLen + 1));
+    let s = "";
+    for (let i = 0; i < len; i++) s += LATIN[Math.floor(Math.random() * LATIN.length)];
+    return s;
+  }
+
+  // Build a JSON object whose JSON.stringify length is >= targetBytes.
+  // Keys are random Latin 5..20 chars, values are random Latin 5..50 chars.
+  // Computes running size incrementally to avoid re-stringifying every iteration.
+  function buildPadding(targetBytes) {
+    const obj = {};
+    if (targetBytes <= 0) return obj;
+    let size = 2; // "{}"
+    while (size < targetBytes) {
+      const key = randomLatinString(5, 20);
+      if (key in obj) continue; // avoid rare duplicate-key collisions
+      const val = randomLatinString(5, 50);
+      const isFirst = size === 2;
+      // Entry adds: (comma if not first) + "key":"val"
+      //   = (isFirst ? 0 : 1) + 2 + key.length + 1 + 2 + val.length
+      size += (isFirst ? 0 : 1) + 5 + key.length + val.length;
+      obj[key] = val;
+    }
+    return obj;
+  }
+
+  function buildMatrix(N, K) {
+    // Rows = streams (K), columns = iterations (N).
+    matrixWrap.innerHTML = "";
+    const table = document.createElement("table");
+    table.id = "matrix";
+    const thead = document.createElement("thead");
+    const trh = document.createElement("tr");
+    const corner = document.createElement("th");
+    corner.textContent = "";
+    trh.appendChild(corner);
+    for (let i = 0; i < N; i++) {
+      const th = document.createElement("th");
+      th.textContent = `iter ${i + 1}`;
+      trh.appendChild(th);
+    }
+    thead.appendChild(trh);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    const cells = [];
+    for (let j = 0; j < K; j++) {
+      const tr = document.createElement("tr");
+      const th = document.createElement("th");
+      th.textContent = `stream ${j + 1}`;
+      tr.appendChild(th);
+      const row = [];
+      for (let i = 0; i < N; i++) {
+        const td = document.createElement("td");
+        td.className = "cell-pending";
+        td.innerHTML = '<span class="label">—</span>';
+        td.addEventListener("mouseenter", onCellEnter);
+        td.addEventListener("mouseleave", onCellLeave);
+        td.addEventListener("mousemove", onCellMove);
+        td.addEventListener("click", onCellClick);
+        td.style.cursor = "pointer";
+        tr.appendChild(td);
+        row.push(td);
+      }
+      tbody.appendChild(tr);
+      cells.push(row);
+    }
+    table.appendChild(tbody);
+    matrixWrap.appendChild(table);
+    return cells;
+  }
+
+  function setCell(td, kind, label, durMs, tooltip) {
+    td.className = `cell-${kind}`;
+    const dur = durMs != null ? `<span class="dur">${(durMs / 1000).toFixed(2)}s</span>` : "";
+    td.innerHTML = `<span class="label">${label}</span>${dur}`;
+    if (tooltip) td.dataset.tt = tooltip;
+    else delete td.dataset.tt;
+    // If the tooltip is currently showing this cell, refresh it live.
+    if (tooltipTarget === td) {
+      if (tooltip) tooltipEl.textContent = tooltip;
+      else hideTooltip();
+    }
+  }
+
+  // --- Custom tooltip with short show delay ---
+  const tooltipEl = document.createElement("div");
+  tooltipEl.id = "custom-tooltip";
+  tooltipEl.hidden = true;
+  document.body.appendChild(tooltipEl);
+
+  const TOOLTIP_DELAY_MS = 80;
+  let tooltipTimer = null;
+  let tooltipTarget = null;
+
+  function positionTooltip(x, y) {
+    const pad = 14;
+    // Temporarily make visible-but-offscreen to measure.
+    tooltipEl.hidden = false;
+    const rect = tooltipEl.getBoundingClientRect();
+    let left = x + pad;
+    let top = y + pad;
+    if (left + rect.width > window.innerWidth - 4)
+      left = Math.max(4, x - rect.width - pad);
+    if (top + rect.height > window.innerHeight - 4)
+      top = Math.max(4, y - rect.height - pad);
+    tooltipEl.style.left = left + "px";
+    tooltipEl.style.top = top + "px";
+  }
+
+  function showTooltipFor(td, x, y) {
+    const text = td.dataset.tt;
+    if (!text) return;
+    tooltipTarget = td;
+    tooltipEl.textContent = text;
+    positionTooltip(x, y);
+  }
+
+  function hideTooltip() {
+    if (tooltipTimer) { clearTimeout(tooltipTimer); tooltipTimer = null; }
+    tooltipTarget = null;
+    tooltipEl.hidden = true;
+  }
+
+  function onCellEnter(e) {
+    const td = e.currentTarget;
+    if (!td.dataset.tt) return;
+    const x = e.clientX, y = e.clientY;
+    if (tooltipTimer) clearTimeout(tooltipTimer);
+    tooltipTimer = setTimeout(() => {
+      tooltipTimer = null;
+      showTooltipFor(td, x, y);
+    }, TOOLTIP_DELAY_MS);
+  }
+  function onCellLeave() { hideTooltip(); }
+  function onCellMove(e) {
+    if (tooltipTarget === e.currentTarget && !tooltipEl.hidden) {
+      positionTooltip(e.clientX, e.clientY);
+    }
+  }
+  const COPIED_HTML = '<span class="label">Copied!</span>';
+  function onCellClick(e) {
+    const td = e.currentTarget;
+    const text = td.dataset.tt;
+    if (!text) return;
+    const doFlash = () => {
+      const prev = td.innerHTML;
+      if (prev === COPIED_HTML) return;
+      td.innerHTML = COPIED_HTML;
+      setTimeout(() => {
+        if (td.innerHTML === COPIED_HTML) td.innerHTML = prev;
+      }, 500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(doFlash).catch(err => {
+        console.error("Clipboard write failed:", err);
+      });
+    } else {
+      console.error("navigator.clipboard unavailable");
+    }
+  }
+
+  // Collect any ratelimit/diagnostic headers the browser is allowed to see.
+  function extractDiagHeaders(res) {
+    const out = {};
+    for (const [name, value] of res.headers.entries()) {
+      const n = name.toLowerCase();
+      if (n.startsWith("anthropic-ratelimit") || n === "retry-after" ||
+          n === "request-id" || n === "x-request-id") {
+        out[name] = value;
+      }
+    }
+    return out;
+  }
+
+  function formatTooltip(info) {
+    const lines = [];
+    if (info.context) lines.push(info.context);
+    if (info.headers && Object.keys(info.headers).length) {
+      if (lines.length) lines.push("");
+      lines.push("Rate-limit / diagnostic headers:");
+      for (const [k, v] of Object.entries(info.headers)) lines.push(`  ${k}: ${v}`);
+    }
+    if (info.errorBody !== undefined && info.errorBody !== null) {
+      if (lines.length) lines.push("");
+      lines.push("Response body:");
+      lines.push(typeof info.errorBody === "string"
+        ? info.errorBody
+        : JSON.stringify(info.errorBody, null, 2));
+    }
+    return lines.join("\n");
+  }
+
+  async function runOne(signal, A, B, logAll, extraBytes, model) {
+    const question = `What is ${A} + ${B}?`;
+    let content;
+    if (extraBytes > 0) {
+      const padding = JSON.stringify(buildPadding(extraBytes));
+      content = [
+        { type: "text", text: `${question} (Ignore the padding attached below.)` },
+        { type: "text", text: padding },
+      ];
+    } else {
+      content = question;
+    }
+    const body = JSON.stringify({
+      model,
+      max_tokens: 64,
+      messages: [{ role: "user", content }],
+    });
+    const t0 = performance.now();
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      signal,
+      headers: headers(apiKey, true),
+      body,
+    });
+    const dur = performance.now() - t0;
+    const durStr = `${(dur / 1000).toFixed(2)}s`;
+    const diagHeaders = extractDiagHeaders(res);
+    const reqBytes = new Blob([body]).size;
+
+    // Read response body once, tolerant to non-JSON error responses.
+    let respBody = null;
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+    try {
+      respBody = ct.includes("application/json") ? await res.json() : await res.text();
+    } catch (e) {
+      respBody = `<failed to parse body: ${e.message}>`;
+    }
+
+    if (!res.ok) {
+      const errInfo = {
+        status: res.status,
+        statusText: res.statusText,
+        A, B, expected: A + B,
+        reqBytes,
+        headers: diagHeaders,
+        body: respBody,
+      };
+      if (res.status === 429) console.error("Anthropic 429 rate limited", errInfo);
+      else console.error(`Anthropic HTTP ${res.status}`, errInfo);
+      return {
+        kind: "err",
+        label: `HTTP ${res.status}`,
+        dur,
+        tooltip: formatTooltip({
+          context: `HTTP ${res.status} ${res.statusText} — A=${A}, B=${B}, expected=${A + B}\nRequest time: ${durStr}\nRequest payload: ${reqBytes} bytes`,
+          headers: diagHeaders,
+          errorBody: respBody,
+        }),
+      };
+    }
+
+    if (logAll) console.log("LLM response", { A, B, expected: A + B, reqBytes, headers: diagHeaders, body: respBody });
+
+    const text = (respBody && respBody.content ? respBody.content : []).map(b => b.text || "").join(" ");
+    const matches = text.match(/-?\d[\d,]*/g) || [];
+    const parsedNumbers = matches.map(m => Number(m.replace(/,/g, "")));
+    const expected = A + B;
+    const matched = parsedNumbers.includes(expected);
+
+    const modelText = text.trim() || "(empty)";
+    let context;
+    if (matched) {
+      context =
+        `Input: ${A} + ${B}\n` +
+        `Correct: ${expected}\n` +
+        `Model returned: ${modelText}\n` +
+        `Request time: ${durStr}\n` +
+        `Request payload: ${reqBytes} bytes`;
+    } else {
+      context =
+        `WRONG ANSWER\n` +
+        `Input: ${A} + ${B}\n` +
+        `Correct: ${expected}\n` +
+        `Model returned: ${modelText}\n` +
+        `Numbers parsed from reply: ${parsedNumbers.length ? parsedNumbers.join(", ") : "(none)"}\n` +
+        `Request time: ${durStr}\n` +
+        `Request payload: ${reqBytes} bytes`;
+      console.warn("Wrong answer", {
+        A, B, expected,
+        modelText,
+        parsedNumbers,
+        reqBytes,
+        headers: diagHeaders,
+        body: respBody,
+      });
+    }
+    const tooltip = formatTooltip({ context, headers: diagHeaders });
+    return {
+      kind: matched ? "ok" : "wrong",
+      label: matched ? "OK" : "Wrong",
+      dur,
+      tooltip,
+    };
+  }
+
+  async function runStream(signal, rowCells, logAll, extraBytes, model) {
+    for (const td of rowCells) {
+      if (signal.aborted) { setCell(td, "abort", "cancelled"); continue; }
+      setCell(td, "running", "...");
+      const A = randomTenDigit();
+      const B = randomTenDigit();
+      try {
+        const r = await runOne(signal, A, B, logAll, extraBytes, model);
+        setCell(td, r.kind, r.label, r.dur, r.tooltip);
+      } catch (err) {
+        if (err.name === "AbortError") {
+          setCell(td, "abort", "cancelled");
+        } else {
+          console.error("Request failed", { A, B, error: err });
+          setCell(td, "err", err.message || "error", null, `A=${A}, B=${B}\n${err.stack || err.message || err}`);
+        }
+      }
+    }
+  }
+
+  startBtn.addEventListener("click", async () => {
+    if (running) return;
+    if (!apiKey) { showStatus("err", "Validate an API key first."); return; }
+    const model = modelSelect.value;
+    if (!model) { showStatus("err", "Pick a model first."); return; }
+    const N = parseInt(nInput.value, 10);
+    const K = parseInt(kInput.value, 10);
+    const extraBytes = Math.max(0, parseInt(padInput.value, 10) || 0);
+    if (!(N > 0) || !(K > 0)) { showStatus("err", "N and K must be positive integers."); return; }
+    if (N > 8) { showStatus("err", "N must be ≤ 8 (max 8 columns)."); return; }
+
+    setRunning(true);
+    abortCtl = new AbortController();
+    const logAll = logAllInput.checked;
+    const padNote = extraBytes > 0 ? ` with ~${extraBytes}B padding` : "";
+    showStatus("info", `Running ${K} streams × ${N} iterations = ${N * K} requests on ${model}${padNote}...`);
+
+    const cells = buildMatrix(N, K);
+    // cells is K rows × N cols; each row is one stream.
+    const streams = [];
+    for (let j = 0; j < K; j++) {
+      streams.push(runStream(abortCtl.signal, cells[j], logAll, extraBytes, model));
+    }
+
+    try {
+      await Promise.all(streams);
+      if (abortCtl.signal.aborted) showStatus("info", "Run cancelled.");
+      else showStatus("ok", "Run complete.");
+    } finally {
+      abortCtl = null;
+      setRunning(false);
+    }
+  });
+
+  cancelBtn.addEventListener("click", () => {
+    if (abortCtl) abortCtl.abort();
+  });
+</script>
+</body>
+</html>
