@@ -1,6 +1,7 @@
 fn main() {
     println!("cargo:rerun-if-changed=../../.git/HEAD");
     println!("cargo:rerun-if-changed=../../.git/refs/");
+    println!("cargo:rerun-if-changed=../../static/anthropiclimits-probe/index.html");
     let hash = std::process::Command::new("git")
         .args(["rev-parse", "--short=7", "HEAD"])
         .output()

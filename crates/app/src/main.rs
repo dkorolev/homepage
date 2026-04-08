@@ -228,7 +228,12 @@ fn render_home(debug: bool) -> String {
 
   // Debug links.
   if debug {
-    for (href, name) in [("/passkey", "Passkey"), ("/login", "OAuth2"), ("/mcpclient", "MCP Client")] {
+    for (href, name) in [
+      ("/passkey", "Passkey"),
+      ("/login", "OAuth2"),
+      ("/mcpclient", "MCP Client"),
+      ("/anthropiclimits", "Anthropic Limits"),
+    ] {
       html.push_str(&format!(
         "    <li><span class=\"headerLine\"><a href=\"{}\" class=\"debug\" style=\"color: #ff8c00 !important;\">{}</a></span></li>\n",
         href, name
@@ -300,6 +305,10 @@ async fn blog_redirect() -> impl IntoResponse {
 
 async fn blog_chinese_redirect() -> impl IntoResponse {
   Redirect::temporary("http://bit.ly/1kC7fKj")
+}
+
+async fn anthropiclimits_page() -> Html<&'static str> {
+  Html(include_str!("../../../static/anthropiclimits-probe/index.html"))
 }
 
 const ZOOM_URL: &str = "https://us06web.zoom.us/j/2332123321";
@@ -427,6 +436,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     .route("/blog", get(blog_redirect))
     .route("/blog/chinese/invited-technical-cofounder", get(blog_chinese_redirect))
     .route("/zoom", get(zoom_redirect))
+    .route("/anthropiclimits", get(anthropiclimits_page))
     .nest_service("/static", ServeDir::new(&static_dir))
     .nest_service("/.well-known", ServeDir::new(&static_dir))
     .with_state(state)
