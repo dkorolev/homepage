@@ -93,8 +93,8 @@
   <h2>Batch arithmetic test</h2>
   <div class="row">
     <div class="field">
-      <label for="n">N (requests per stream)</label>
-      <input id="n" type="number" min="1" value="5">
+      <label for="n">N (iterations per stream, max 8)</label>
+      <input id="n" type="number" min="1" max="8" value="5">
     </div>
     <div class="field">
       <label for="k">K (parallel streams)</label>
@@ -102,6 +102,9 @@
     </div>
     <button id="start-btn" type="button">Start</button>
     <button id="cancel-btn" type="button" disabled>Cancel</button>
+  </div>
+  <div class="field">
+    <label><input id="log-all" type="checkbox"> Log every LLM response to console</label>
   </div>
 
   <div id="status" hidden></div>
@@ -111,14 +114,15 @@
   const MODEL = "claude-haiku-4-5-20251001";
   const API_VERSION = "2023-06-01";
 
-  const keyInput   = document.getElementById("key");
-  const testBtn    = document.getElementById("test-btn");
-  const nInput     = document.getElementById("n");
-  const kInput     = document.getElementById("k");
-  const startBtn   = document.getElementById("start-btn");
-  const cancelBtn  = document.getElementById("cancel-btn");
-  const statusEl   = document.getElementById("status");
-  const matrixWrap = document.getElementById("matrix-wrap");
+  const keyInput    = document.getElementById("key");
+  const testBtn     = document.getElementById("test-btn");
+  const nInput      = document.getElementById("n");
+  const kInput      = document.getElementById("k");
+  const startBtn    = document.getElementById("start-btn");
+  const cancelBtn   = document.getElementById("cancel-btn");
+  const logAllInput = document.getElementById("log-all");
+  const statusEl    = document.getElementById("status");
+  const matrixWrap  = document.getElementById("matrix-wrap");
 
   let running = false;
   let abortCtl = null;
@@ -188,6 +192,7 @@
   }
 
   function buildMatrix(N, K) {
+    // Rows = streams (K), columns = iterations (N).
     matrixWrap.innerHTML = "";
     const table = document.createElement("table");
     table.id = "matrix";
@@ -196,9 +201,9 @@
     const corner = document.createElement("th");
     corner.textContent = "";
     trh.appendChild(corner);
-    for (let j = 0; j < K; j++) {
+    for (let i = 0; i < N; i++) {
       const th = document.createElement("th");
-      th.textContent = `stream ${j + 1}`;
+      th.textContent = `iter ${i + 1}`;
       trh.appendChild(th);
     }
     thead.appendChild(trh);
@@ -206,13 +211,13 @@
 
     const tbody = document.createElement("tbody");
     const cells = [];
-    for (let i = 0; i < N; i++) {
+    for (let j = 0; j < K; j++) {
       const tr = document.createElement("tr");
       const th = document.createElement("th");
-      th.textContent = `#${i + 1}`;
+      th.textContent = `stream ${j + 1}`;
       tr.appendChild(th);
       const row = [];
-      for (let j = 0; j < K; j++) {
+      for (let i = 0; i < N; i++) {
         const td = document.createElement("td");
         td.className = "cell-pending";
         td.innerHTML = '<span class="label">—</span>';
@@ -227,13 +232,46 @@
     return cells;
   }
 
-  function setCell(td, kind, label, durMs) {
+  function setCell(td, kind, label, durMs, tooltip) {
     td.className = `cell-${kind}`;
     const dur = durMs != null ? `<span class="dur">${(durMs / 1000).toFixed(2)}s</span>` : "";
     td.innerHTML = `<span class="label">${label}</span>${dur}`;
+    if (tooltip) td.title = tooltip;
+    else td.removeAttribute("title");
   }
 
-  async function runOne(key, signal, A, B) {
+  // Collect any ratelimit/diagnostic headers the browser is allowed to see.
+  function extractDiagHeaders(res) {
+    const out = {};
+    for (const [name, value] of res.headers.entries()) {
+      const n = name.toLowerCase();
+      if (n.startsWith("anthropic-ratelimit") || n === "retry-after" ||
+          n === "request-id" || n === "x-request-id") {
+        out[name] = value;
+      }
+    }
+    return out;
+  }
+
+  function formatTooltip(info) {
+    const lines = [];
+    if (info.context) lines.push(info.context);
+    if (info.headers && Object.keys(info.headers).length) {
+      if (lines.length) lines.push("");
+      lines.push("Rate-limit / diagnostic headers:");
+      for (const [k, v] of Object.entries(info.headers)) lines.push(`  ${k}: ${v}`);
+    }
+    if (info.errorBody !== undefined && info.errorBody !== null) {
+      if (lines.length) lines.push("");
+      lines.push("Response body:");
+      lines.push(typeof info.errorBody === "string"
+        ? info.errorBody
+        : JSON.stringify(info.errorBody, null, 2));
+    }
+    return lines.join("\n");
+  }
+
+  async function runOne(key, signal, A, B, logAll) {
     const t0 = performance.now();
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -245,34 +283,77 @@
         messages: [{ role: "user", content: `What is ${A} + ${B}?` }],
       }),
     });
-    if (!res.ok) {
-      const dur = performance.now() - t0;
-      return { kind: "err", label: `HTTP ${res.status}`, dur };
-    }
-    const data = await res.json();
     const dur = performance.now() - t0;
-    const text = (data.content || []).map(b => b.text || "").join(" ");
+    const diagHeaders = extractDiagHeaders(res);
+
+    // Read body once, tolerant to non-JSON error responses.
+    let body = null;
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+    try {
+      body = ct.includes("application/json") ? await res.json() : await res.text();
+    } catch (e) {
+      body = `<failed to parse body: ${e.message}>`;
+    }
+
+    if (!res.ok) {
+      const errInfo = {
+        status: res.status,
+        statusText: res.statusText,
+        A, B, expected: A + B,
+        headers: diagHeaders,
+        body,
+      };
+      if (res.status === 429) console.error("Anthropic 429 rate limited", errInfo);
+      else console.error(`Anthropic HTTP ${res.status}`, errInfo);
+      return {
+        kind: "err",
+        label: `HTTP ${res.status}`,
+        dur,
+        tooltip: formatTooltip({
+          context: `HTTP ${res.status} ${res.statusText} — A=${A}, B=${B}, expected=${A + B}`,
+          headers: diagHeaders,
+          errorBody: body,
+        }),
+      };
+    }
+
+    if (logAll) console.log("LLM response", { A, B, expected: A + B, headers: diagHeaders, body });
+
+    const text = (body && body.content ? body.content : []).map(b => b.text || "").join(" ");
     const matches = text.match(/-?\d[\d,]*/g) || [];
     const expected = A + B;
     let matched = false;
     for (const m of matches) {
       if (Number(m.replace(/,/g, "")) === expected) { matched = true; break; }
     }
-    return { kind: matched ? "ok" : "wrong", label: matched ? "OK" : "Wrong", dur };
+    const tooltip = formatTooltip({
+      context: `A=${A}, B=${B}, expected=${expected}\nModel said: ${text.trim() || "(empty)"}`,
+      headers: diagHeaders,
+    });
+    return {
+      kind: matched ? "ok" : "wrong",
+      label: matched ? "OK" : "Wrong",
+      dur,
+      tooltip,
+    };
   }
 
-  async function runStream(key, signal, colCells) {
-    for (const td of colCells) {
+  async function runStream(key, signal, rowCells, logAll) {
+    for (const td of rowCells) {
       if (signal.aborted) { setCell(td, "abort", "cancelled"); continue; }
       setCell(td, "running", "...");
       const A = randomTenDigit();
       const B = randomTenDigit();
       try {
-        const r = await runOne(key, signal, A, B);
-        setCell(td, r.kind, r.label, r.dur);
+        const r = await runOne(key, signal, A, B, logAll);
+        setCell(td, r.kind, r.label, r.dur, r.tooltip);
       } catch (err) {
-        if (err.name === "AbortError") setCell(td, "abort", "cancelled");
-        else setCell(td, "err", err.message || "error");
+        if (err.name === "AbortError") {
+          setCell(td, "abort", "cancelled");
+        } else {
+          console.error("Request failed", { A, B, error: err });
+          setCell(td, "err", err.message || "error", null, `A=${A}, B=${B}\n${err.stack || err.message || err}`);
+        }
       }
     }
   }
@@ -284,17 +365,18 @@
     const N = parseInt(nInput.value, 10);
     const K = parseInt(kInput.value, 10);
     if (!(N > 0) || !(K > 0)) { showStatus("err", "N and K must be positive integers."); return; }
+    if (N > 8) { showStatus("err", "N must be ≤ 8 (max 8 columns)."); return; }
 
     setRunning(true);
     abortCtl = new AbortController();
-    showStatus("info", `Running ${N} × ${K} = ${N * K} requests...`);
+    const logAll = logAllInput.checked;
+    showStatus("info", `Running ${K} streams × ${N} iterations = ${N * K} requests...`);
 
     const cells = buildMatrix(N, K);
-    // cells is N rows × K cols; per-stream column slice:
+    // cells is K rows × N cols; each row is one stream.
     const streams = [];
     for (let j = 0; j < K; j++) {
-      const col = cells.map(row => row[j]);
-      streams.push(runStream(key, abortCtl.signal, col));
+      streams.push(runStream(key, abortCtl.signal, cells[j], logAll));
     }
 
     try {
