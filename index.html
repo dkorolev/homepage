@@ -273,6 +273,8 @@
         td.addEventListener("mouseenter", onCellEnter);
         td.addEventListener("mouseleave", onCellLeave);
         td.addEventListener("mousemove", onCellMove);
+        td.addEventListener("click", onCellClick);
+        td.style.cursor = "pointer";
         tr.appendChild(td);
         row.push(td);
       }
@@ -350,6 +352,27 @@
   function onCellMove(e) {
     if (tooltipTarget === e.currentTarget && !tooltipEl.hidden) {
       positionTooltip(e.clientX, e.clientY);
+    }
+  }
+  const COPIED_HTML = '<span class="label">Copied!</span>';
+  function onCellClick(e) {
+    const td = e.currentTarget;
+    const text = td.dataset.tt;
+    if (!text) return;
+    const doFlash = () => {
+      const prev = td.innerHTML;
+      if (prev === COPIED_HTML) return;
+      td.innerHTML = COPIED_HTML;
+      setTimeout(() => {
+        if (td.innerHTML === COPIED_HTML) td.innerHTML = prev;
+      }, 500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(doFlash).catch(err => {
+        console.error("Clipboard write failed:", err);
+      });
+    } else {
+      console.error("navigator.clipboard unavailable");
     }
   }
 
