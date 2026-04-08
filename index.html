@@ -3,32 +3,35 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Anthropic API key tester</title>
+<title>Anthropic API playground</title>
 <style>
   :root { color-scheme: light dark; }
   body {
     font-family: system-ui, -apple-system, sans-serif;
-    max-width: 32rem;
-    margin: 4rem auto;
+    max-width: 60rem;
+    margin: 2rem auto;
     padding: 0 1rem;
     line-height: 1.5;
   }
   h1 { font-size: 1.25rem; }
-  label { display: block; margin-top: 1rem; font-weight: 600; }
-  input[type="password"] {
-    width: 100%;
+  h2 { font-size: 1rem; margin-top: 2rem; }
+  label { font-weight: 600; }
+  .field { margin-top: 0.75rem; }
+  .field label { display: block; margin-bottom: 0.25rem; }
+  input[type="password"], input[type="number"] {
     padding: 0.5rem;
     font: inherit;
     box-sizing: border-box;
-    margin-top: 0.25rem;
   }
+  input[type="password"] { width: 100%; }
+  input[type="number"] { width: 6rem; }
+  .row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; }
   button {
-    margin-top: 1rem;
     padding: 0.5rem 1rem;
     font: inherit;
     cursor: pointer;
   }
-  button:disabled { cursor: wait; opacity: 0.6; }
+  button:disabled { cursor: not-allowed; opacity: 0.5; }
   #status {
     margin-top: 1rem;
     padding: 0.75rem;
@@ -44,69 +47,268 @@
     #status.err { background: #3a1e22; color: #e6b8bd; }
     #status.info { background: #2a2b2c; color: #c8c9ca; }
   }
+  #matrix {
+    margin-top: 1rem;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.85rem;
+  }
+  #matrix th, #matrix td {
+    border: 1px solid #8884;
+    padding: 0.35rem 0.5rem;
+    text-align: center;
+    min-width: 6.5rem;
+  }
+  #matrix th { font-weight: 600; background: #8881; }
+  #matrix td .label { font-weight: 600; }
+  #matrix td .dur { display: block; font-size: 0.75rem; opacity: 0.75; }
+  .cell-pending { background: #8881; color: #666; }
+  .cell-running { background: #cfe2ff; color: #052c65; }
+  .cell-ok      { background: #d4edda; color: #155724; }
+  .cell-wrong   { background: #fff3cd; color: #664d03; }
+  .cell-err     { background: #f8d7da; color: #721c24; }
+  .cell-abort   { background: #8881; color: #666; }
+  @media (prefers-color-scheme: dark) {
+    .cell-pending { background: #2a2b2c; color: #aaa; }
+    .cell-running { background: #14304d; color: #cfe2ff; }
+    .cell-ok      { background: #1e3a24; color: #b8e6c1; }
+    .cell-wrong   { background: #3d3a1a; color: #ffe69c; }
+    .cell-err     { background: #3a1e22; color: #e6b8bd; }
+    .cell-abort   { background: #2a2b2c; color: #aaa; }
+  }
 </style>
 </head>
 <body>
-  <h1>Anthropic API key tester</h1>
-  <p>Paste an Anthropic API key and click the button to check if it is valid. The key is sent directly from your browser to <code>api.anthropic.com</code> over HTTPS and is never stored or transmitted anywhere else.</p>
+  <h1>Anthropic API playground</h1>
+  <p>Key stays in this tab and is sent only to <code>api.anthropic.com</code> over HTTPS.</p>
 
-  <form id="form">
+  <div class="field">
     <label for="key">API key</label>
-    <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-..." required>
-    <button id="submit" type="submit">Test key</button>
-  </form>
+    <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-...">
+  </div>
+
+  <h2>Validate key</h2>
+  <button id="test-btn" type="button">Test key</button>
+
+  <h2>Batch arithmetic test</h2>
+  <div class="row">
+    <div class="field">
+      <label for="n">N (requests per stream)</label>
+      <input id="n" type="number" min="1" value="5">
+    </div>
+    <div class="field">
+      <label for="k">K (parallel streams)</label>
+      <input id="k" type="number" min="1" value="3">
+    </div>
+    <button id="start-btn" type="button">Start</button>
+    <button id="cancel-btn" type="button" disabled>Cancel</button>
+  </div>
 
   <div id="status" hidden></div>
+  <div id="matrix-wrap"></div>
 
 <script>
-  const form = document.getElementById("form");
-  const keyInput = document.getElementById("key");
-  const submitBtn = document.getElementById("submit");
-  const status = document.getElementById("status");
+  const MODEL = "claude-haiku-4-5-20251001";
+  const API_VERSION = "2023-06-01";
 
-  function show(kind, msg) {
-    status.hidden = false;
-    status.className = kind;
-    status.textContent = msg;
+  const keyInput   = document.getElementById("key");
+  const testBtn    = document.getElementById("test-btn");
+  const nInput     = document.getElementById("n");
+  const kInput     = document.getElementById("k");
+  const startBtn   = document.getElementById("start-btn");
+  const cancelBtn  = document.getElementById("cancel-btn");
+  const statusEl   = document.getElementById("status");
+  const matrixWrap = document.getElementById("matrix-wrap");
+
+  let running = false;
+  let abortCtl = null;
+
+  function showStatus(kind, msg) {
+    statusEl.hidden = false;
+    statusEl.className = kind;
+    statusEl.textContent = msg;
   }
 
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
+  function setRunning(on) {
+    running = on;
+    testBtn.disabled   = on;
+    startBtn.disabled  = on;
+    keyInput.disabled  = on;
+    nInput.disabled    = on;
+    kInput.disabled    = on;
+    cancelBtn.disabled = !on;
+  }
+
+  function headers(key, withJson) {
+    const h = {
+      "x-api-key": key,
+      "anthropic-version": API_VERSION,
+      "anthropic-dangerous-direct-browser-access": "true",
+    };
+    if (withJson) h["content-type"] = "application/json";
+    return h;
+  }
+
+  // --- Validate key ---
+  testBtn.addEventListener("click", async () => {
+    if (running) return;
     const key = keyInput.value.trim();
-    if (!key) return;
+    if (!key) { showStatus("err", "Enter an API key first."); return; }
 
-    submitBtn.disabled = true;
-    show("info", "Testing...");
-
+    setRunning(true);
+    showStatus("info", "Testing key...");
     try {
       const res = await fetch("https://api.anthropic.com/v1/models", {
         method: "GET",
-        headers: {
-          "x-api-key": key,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
+        headers: headers(key, false),
       });
-
       if (res.ok) {
         const data = await res.json();
         const count = Array.isArray(data.data) ? data.data.length : 0;
-        show("ok", `Key is valid. ${count} model${count === 1 ? "" : "s"} available.`);
+        showStatus("ok", `Key is valid. ${count} model${count === 1 ? "" : "s"} available.`);
       } else {
         let detail = "";
         try {
           const err = await res.json();
           detail = err?.error?.message || JSON.stringify(err);
-        } catch {
-          detail = await res.text();
-        }
-        show("err", `Key rejected (HTTP ${res.status}): ${detail}`);
+        } catch { detail = await res.text(); }
+        showStatus("err", `Key rejected (HTTP ${res.status}): ${detail}`);
       }
     } catch (err) {
-      show("err", `Request failed: ${err.message}`);
+      showStatus("err", `Request failed: ${err.message}`);
     } finally {
-      submitBtn.disabled = false;
+      setRunning(false);
     }
+  });
+
+  // --- Batch test ---
+  function randomTenDigit() {
+    // [1e9, 1e10) → 10 decimal digits, first digit 1..9.
+    return Math.floor(Math.random() * 9e9) + 1e9;
+  }
+
+  function buildMatrix(N, K) {
+    matrixWrap.innerHTML = "";
+    const table = document.createElement("table");
+    table.id = "matrix";
+    const thead = document.createElement("thead");
+    const trh = document.createElement("tr");
+    const corner = document.createElement("th");
+    corner.textContent = "";
+    trh.appendChild(corner);
+    for (let j = 0; j < K; j++) {
+      const th = document.createElement("th");
+      th.textContent = `stream ${j + 1}`;
+      trh.appendChild(th);
+    }
+    thead.appendChild(trh);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    const cells = [];
+    for (let i = 0; i < N; i++) {
+      const tr = document.createElement("tr");
+      const th = document.createElement("th");
+      th.textContent = `#${i + 1}`;
+      tr.appendChild(th);
+      const row = [];
+      for (let j = 0; j < K; j++) {
+        const td = document.createElement("td");
+        td.className = "cell-pending";
+        td.innerHTML = '<span class="label">—</span>';
+        tr.appendChild(td);
+        row.push(td);
+      }
+      tbody.appendChild(tr);
+      cells.push(row);
+    }
+    table.appendChild(tbody);
+    matrixWrap.appendChild(table);
+    return cells;
+  }
+
+  function setCell(td, kind, label, durMs) {
+    td.className = `cell-${kind}`;
+    const dur = durMs != null ? `<span class="dur">${(durMs / 1000).toFixed(2)}s</span>` : "";
+    td.innerHTML = `<span class="label">${label}</span>${dur}`;
+  }
+
+  async function runOne(key, signal, A, B) {
+    const t0 = performance.now();
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      signal,
+      headers: headers(key, true),
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 64,
+        messages: [{ role: "user", content: `What is ${A} + ${B}?` }],
+      }),
+    });
+    if (!res.ok) {
+      const dur = performance.now() - t0;
+      return { kind: "err", label: `HTTP ${res.status}`, dur };
+    }
+    const data = await res.json();
+    const dur = performance.now() - t0;
+    const text = (data.content || []).map(b => b.text || "").join(" ");
+    const matches = text.match(/-?\d[\d,]*/g) || [];
+    const expected = A + B;
+    let matched = false;
+    for (const m of matches) {
+      if (Number(m.replace(/,/g, "")) === expected) { matched = true; break; }
+    }
+    return { kind: matched ? "ok" : "wrong", label: matched ? "OK" : "Wrong", dur };
+  }
+
+  async function runStream(key, signal, colCells) {
+    for (const td of colCells) {
+      if (signal.aborted) { setCell(td, "abort", "cancelled"); continue; }
+      setCell(td, "running", "...");
+      const A = randomTenDigit();
+      const B = randomTenDigit();
+      try {
+        const r = await runOne(key, signal, A, B);
+        setCell(td, r.kind, r.label, r.dur);
+      } catch (err) {
+        if (err.name === "AbortError") setCell(td, "abort", "cancelled");
+        else setCell(td, "err", err.message || "error");
+      }
+    }
+  }
+
+  startBtn.addEventListener("click", async () => {
+    if (running) return;
+    const key = keyInput.value.trim();
+    if (!key) { showStatus("err", "Enter an API key first."); return; }
+    const N = parseInt(nInput.value, 10);
+    const K = parseInt(kInput.value, 10);
+    if (!(N > 0) || !(K > 0)) { showStatus("err", "N and K must be positive integers."); return; }
+
+    setRunning(true);
+    abortCtl = new AbortController();
+    showStatus("info", `Running ${N} × ${K} = ${N * K} requests...`);
+
+    const cells = buildMatrix(N, K);
+    // cells is N rows × K cols; per-stream column slice:
+    const streams = [];
+    for (let j = 0; j < K; j++) {
+      const col = cells.map(row => row[j]);
+      streams.push(runStream(key, abortCtl.signal, col));
+    }
+
+    try {
+      await Promise.all(streams);
+      if (abortCtl.signal.aborted) showStatus("info", "Run cancelled.");
+      else showStatus("ok", "Run complete.");
+    } finally {
+      abortCtl = null;
+      setRunning(false);
+    }
+  });
+
+  cancelBtn.addEventListener("click", () => {
+    if (abortCtl) abortCtl.abort();
   });
 </script>
 </body>
