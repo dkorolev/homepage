@@ -517,6 +517,7 @@
       body,
     });
     const dur = performance.now() - t0;
+    const durStr = `${(dur / 1000).toFixed(2)}s`;
     const diagHeaders = extractDiagHeaders(res);
     const reqBytes = new Blob([body]).size;
 
@@ -545,7 +546,7 @@
         label: `HTTP ${res.status}`,
         dur,
         tooltip: formatTooltip({
-          context: `HTTP ${res.status} ${res.statusText} — A=${A}, B=${B}, expected=${A + B}\nRequest payload: ${reqBytes} bytes`,
+          context: `HTTP ${res.status} ${res.statusText} — A=${A}, B=${B}, expected=${A + B}\nRequest time: ${durStr}\nRequest payload: ${reqBytes} bytes`,
           headers: diagHeaders,
           errorBody: respBody,
         }),
@@ -567,6 +568,7 @@
         `Input: ${A} + ${B}\n` +
         `Correct: ${expected}\n` +
         `Model returned: ${modelText}\n` +
+        `Request time: ${durStr}\n` +
         `Request payload: ${reqBytes} bytes`;
     } else {
       context =
@@ -575,6 +577,7 @@
         `Correct: ${expected}\n` +
         `Model returned: ${modelText}\n` +
         `Numbers parsed from reply: ${parsedNumbers.length ? parsedNumbers.join(", ") : "(none)"}\n` +
+        `Request time: ${durStr}\n` +
         `Request payload: ${reqBytes} bytes`;
       console.warn("Wrong answer", {
         A, B, expected,
