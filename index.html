@@ -115,7 +115,7 @@
   <div id="matrix-wrap"></div>
 
 <script>
-  const MODEL = "claude-haiku-4-5-20251001";
+  const MODEL = "claude-sonnet-4-6";
   const API_VERSION = "2023-06-01";
 
   const keyInput    = document.getElementById("key");
@@ -369,15 +369,36 @@
 
     const text = (respBody && respBody.content ? respBody.content : []).map(b => b.text || "").join(" ");
     const matches = text.match(/-?\d[\d,]*/g) || [];
+    const parsedNumbers = matches.map(m => Number(m.replace(/,/g, "")));
     const expected = A + B;
-    let matched = false;
-    for (const m of matches) {
-      if (Number(m.replace(/,/g, "")) === expected) { matched = true; break; }
+    const matched = parsedNumbers.includes(expected);
+
+    const modelText = text.trim() || "(empty)";
+    let context;
+    if (matched) {
+      context =
+        `Input: ${A} + ${B}\n` +
+        `Correct: ${expected}\n` +
+        `Model returned: ${modelText}\n` +
+        `Request payload: ${reqBytes} bytes`;
+    } else {
+      context =
+        `WRONG ANSWER\n` +
+        `Input: ${A} + ${B}\n` +
+        `Correct: ${expected}\n` +
+        `Model returned: ${modelText}\n` +
+        `Numbers parsed from reply: ${parsedNumbers.length ? parsedNumbers.join(", ") : "(none)"}\n` +
+        `Request payload: ${reqBytes} bytes`;
+      console.warn("Wrong answer", {
+        A, B, expected,
+        modelText,
+        parsedNumbers,
+        reqBytes,
+        headers: diagHeaders,
+        body: respBody,
+      });
     }
-    const tooltip = formatTooltip({
-      context: `A=${A}, B=${B}, expected=${expected}\nRequest payload: ${reqBytes} bytes\nModel said: ${text.trim() || "(empty)"}`,
-      headers: diagHeaders,
-    });
+    const tooltip = formatTooltip({ context, headers: diagHeaders });
     return {
       kind: matched ? "ok" : "wrong",
       label: matched ? "OK" : "Wrong",
