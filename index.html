@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anthropic API key tester</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    max-width: 32rem;
+    margin: 4rem auto;
+    padding: 0 1rem;
+    line-height: 1.5;
+  }
+  h1 { font-size: 1.25rem; }
+  label { display: block; margin-top: 1rem; font-weight: 600; }
+  input[type="password"] {
+    width: 100%;
+    padding: 0.5rem;
+    font: inherit;
+    box-sizing: border-box;
+    margin-top: 0.25rem;
+  }
+  button {
+    margin-top: 1rem;
+    padding: 0.5rem 1rem;
+    font: inherit;
+    cursor: pointer;
+  }
+  button:disabled { cursor: wait; opacity: 0.6; }
+  #status {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #status.ok { background: #d4edda; color: #155724; }
+  #status.err { background: #f8d7da; color: #721c24; }
+  #status.info { background: #e2e3e5; color: #383d41; }
+  @media (prefers-color-scheme: dark) {
+    #status.ok { background: #1e3a24; color: #b8e6c1; }
+    #status.err { background: #3a1e22; color: #e6b8bd; }
+    #status.info { background: #2a2b2c; color: #c8c9ca; }
+  }
+</style>
+</head>
+<body>
+  <h1>Anthropic API key tester</h1>
+  <p>Paste an Anthropic API key and click the button to check if it is valid. The key is sent directly from your browser to <code>api.anthropic.com</code> over HTTPS and is never stored or transmitted anywhere else.</p>
+
+  <form id="form">
+    <label for="key">API key</label>
+    <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-..." required>
+    <button id="submit" type="submit">Test key</button>
+  </form>
+
+  <div id="status" hidden></div>
+
+<script>
+  const form = document.getElementById("form");
+  const keyInput = document.getElementById("key");
+  const submitBtn = document.getElementById("submit");
+  const status = document.getElementById("status");
+
+  function show(kind, msg) {
+    status.hidden = false;
+    status.className = kind;
+    status.textContent = msg;
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const key = keyInput.value.trim();
+    if (!key) return;
+
+    submitBtn.disabled = true;
+    show("info", "Testing...");
+
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/models", {
+        method: "GET",
+        headers: {
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const count = Array.isArray(data.data) ? data.data.length : 0;
+        show("ok", `Key is valid. ${count} model${count === 1 ? "" : "s"} available.`);
+      } else {
+        let detail = "";
+        try {
+          const err = await res.json();
+          detail = err?.error?.message || JSON.stringify(err);
+        } catch {
+          detail = await res.text();
+        }
+        show("err", `Key rejected (HTTP ${res.status}): ${detail}`);
+      }
+    } catch (err) {
+      show("err", `Request failed: ${err.message}`);
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
