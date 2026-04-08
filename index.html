@@ -100,6 +100,10 @@
       <label for="k">K (parallel streams)</label>
       <input id="k" type="number" min="1" value="3">
     </div>
+    <div class="field">
+      <label for="pad">Extra payload bytes</label>
+      <input id="pad" type="number" min="0" value="0">
+    </div>
     <button id="start-btn" type="button">Start</button>
     <button id="cancel-btn" type="button" disabled>Cancel</button>
   </div>
@@ -118,6 +122,7 @@
   const testBtn     = document.getElementById("test-btn");
   const nInput      = document.getElementById("n");
   const kInput      = document.getElementById("k");
+  const padInput    = document.getElementById("pad");
   const startBtn    = document.getElementById("start-btn");
   const cancelBtn   = document.getElementById("cancel-btn");
   const logAllInput = document.getElementById("log-all");
@@ -140,6 +145,7 @@
     keyInput.disabled  = on;
     nInput.disabled    = on;
     kInput.disabled    = on;
+    padInput.disabled  = on;
     cancelBtn.disabled = !on;
   }
 
@@ -189,6 +195,34 @@
   function randomTenDigit() {
     // [1e9, 1e10) → 10 decimal digits, first digit 1..9.
     return Math.floor(Math.random() * 9e9) + 1e9;
+  }
+
+  const LATIN = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  function randomLatinString(minLen, maxLen) {
+    const len = minLen + Math.floor(Math.random() * (maxLen - minLen + 1));
+    let s = "";
+    for (let i = 0; i < len; i++) s += LATIN[Math.floor(Math.random() * LATIN.length)];
+    return s;
+  }
+
+  // Build a JSON object whose JSON.stringify length is >= targetBytes.
+  // Keys are random Latin 5..20 chars, values are random Latin 5..50 chars.
+  // Computes running size incrementally to avoid re-stringifying every iteration.
+  function buildPadding(targetBytes) {
+    const obj = {};
+    if (targetBytes <= 0) return obj;
+    let size = 2; // "{}"
+    while (size < targetBytes) {
+      const key = randomLatinString(5, 20);
+      if (key in obj) continue; // avoid rare duplicate-key collisions
+      const val = randomLatinString(5, 50);
+      const isFirst = size === 2;
+      // Entry adds: (comma if not first) + "key":"val"
+      //   = (isFirst ? 0 : 1) + 2 + key.length + 1 + 2 + val.length
+      size += (isFirst ? 0 : 1) + 5 + key.length + val.length;
+      obj[key] = val;
+    }
+    return obj;
   }
 
   function buildMatrix(N, K) {
@@ -271,28 +305,41 @@
     return lines.join("\n");
   }
 
-  async function runOne(key, signal, A, B, logAll) {
+  async function runOne(key, signal, A, B, logAll, extraBytes) {
+    const question = `What is ${A} + ${B}?`;
+    let content;
+    if (extraBytes > 0) {
+      const padding = JSON.stringify(buildPadding(extraBytes));
+      content = [
+        { type: "text", text: `${question} (Ignore the padding attached below.)` },
+        { type: "text", text: padding },
+      ];
+    } else {
+      content = question;
+    }
+    const body = JSON.stringify({
+      model: MODEL,
+      max_tokens: 64,
+      messages: [{ role: "user", content }],
+    });
     const t0 = performance.now();
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       signal,
       headers: headers(key, true),
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 64,
-        messages: [{ role: "user", content: `What is ${A} + ${B}?` }],
-      }),
+      body,
     });
     const dur = performance.now() - t0;
     const diagHeaders = extractDiagHeaders(res);
+    const reqBytes = new Blob([body]).size;
 
-    // Read body once, tolerant to non-JSON error responses.
-    let body = null;
+    // Read response body once, tolerant to non-JSON error responses.
+    let respBody = null;
     const ct = (res.headers.get("content-type") || "").toLowerCase();
     try {
-      body = ct.includes("application/json") ? await res.json() : await res.text();
+      respBody = ct.includes("application/json") ? await res.json() : await res.text();
     } catch (e) {
-      body = `<failed to parse body: ${e.message}>`;
+      respBody = `<failed to parse body: ${e.message}>`;
     }
 
     if (!res.ok) {
@@ -300,8 +347,9 @@
         status: res.status,
         statusText: res.statusText,
         A, B, expected: A + B,
+        reqBytes,
         headers: diagHeaders,
-        body,
+        body: respBody,
       };
       if (res.status === 429) console.error("Anthropic 429 rate limited", errInfo);
       else console.error(`Anthropic HTTP ${res.status}`, errInfo);
@@ -310,16 +358,16 @@
         label: `HTTP ${res.status}`,
         dur,
         tooltip: formatTooltip({
-          context: `HTTP ${res.status} ${res.statusText} — A=${A}, B=${B}, expected=${A + B}`,
+          context: `HTTP ${res.status} ${res.statusText} — A=${A}, B=${B}, expected=${A + B}\nRequest payload: ${reqBytes} bytes`,
           headers: diagHeaders,
-          errorBody: body,
+          errorBody: respBody,
         }),
       };
     }
 
-    if (logAll) console.log("LLM response", { A, B, expected: A + B, headers: diagHeaders, body });
+    if (logAll) console.log("LLM response", { A, B, expected: A + B, reqBytes, headers: diagHeaders, body: respBody });
 
-    const text = (body && body.content ? body.content : []).map(b => b.text || "").join(" ");
+    const text = (respBody && respBody.content ? respBody.content : []).map(b => b.text || "").join(" ");
     const matches = text.match(/-?\d[\d,]*/g) || [];
     const expected = A + B;
     let matched = false;
@@ -327,7 +375,7 @@
       if (Number(m.replace(/,/g, "")) === expected) { matched = true; break; }
     }
     const tooltip = formatTooltip({
-      context: `A=${A}, B=${B}, expected=${expected}\nModel said: ${text.trim() || "(empty)"}`,
+      context: `A=${A}, B=${B}, expected=${expected}\nRequest payload: ${reqBytes} bytes\nModel said: ${text.trim() || "(empty)"}`,
       headers: diagHeaders,
     });
     return {
@@ -338,14 +386,14 @@
     };
   }
 
-  async function runStream(key, signal, rowCells, logAll) {
+  async function runStream(key, signal, rowCells, logAll, extraBytes) {
     for (const td of rowCells) {
       if (signal.aborted) { setCell(td, "abort", "cancelled"); continue; }
       setCell(td, "running", "...");
       const A = randomTenDigit();
       const B = randomTenDigit();
       try {
-        const r = await runOne(key, signal, A, B, logAll);
+        const r = await runOne(key, signal, A, B, logAll, extraBytes);
         setCell(td, r.kind, r.label, r.dur, r.tooltip);
       } catch (err) {
         if (err.name === "AbortError") {
@@ -364,19 +412,21 @@
     if (!key) { showStatus("err", "Enter an API key first."); return; }
     const N = parseInt(nInput.value, 10);
     const K = parseInt(kInput.value, 10);
+    const extraBytes = Math.max(0, parseInt(padInput.value, 10) || 0);
     if (!(N > 0) || !(K > 0)) { showStatus("err", "N and K must be positive integers."); return; }
     if (N > 8) { showStatus("err", "N must be ≤ 8 (max 8 columns)."); return; }
 
     setRunning(true);
     abortCtl = new AbortController();
     const logAll = logAllInput.checked;
-    showStatus("info", `Running ${K} streams × ${N} iterations = ${N * K} requests...`);
+    const padNote = extraBytes > 0 ? ` with ~${extraBytes}B padding` : "";
+    showStatus("info", `Running ${K} streams × ${N} iterations = ${N * K} requests${padNote}...`);
 
     const cells = buildMatrix(N, K);
     // cells is K rows × N cols; each row is one stream.
     const streams = [];
     for (let j = 0; j < K; j++) {
-      streams.push(runStream(key, abortCtl.signal, cells[j], logAll));
+      streams.push(runStream(key, abortCtl.signal, cells[j], logAll, extraBytes));
     }
 
     try {
