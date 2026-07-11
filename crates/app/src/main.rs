@@ -318,13 +318,24 @@ async fn zoom_redirect() -> impl IntoResponse {
 }
 
 /// Middleware: redirect based on Host header (e.g. zoom.dima.ai -> Zoom).
-async fn host_redirects(headers: HeaderMap, request: Request, next: middleware::Next) -> Response {
+async fn host_redirects(
+  State(pad_path): State<PathBuf>, headers: HeaderMap, request: Request, next: middleware::Next,
+) -> Response {
   if let Some(host) = headers.get(header::HOST) {
     if let Ok(host_str) = host.to_str() {
       let hostname = host_str.split(':').next().unwrap_or(host_str);
       if hostname == "zoom.dima.ai" {
         tracing::info!("host redirect: {} -> {}", host_str, ZOOM_URL);
         return Redirect::permanent(ZOOM_URL).into_response();
+      }
+      if hostname == "sudoku.dima.ai" {
+        return match tokio::fs::read(&pad_path).await {
+          Ok(body) => ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], body).into_response(),
+          Err(e) => {
+            tracing::error!("failed to serve {} for {}: {}", pad_path.display(), host_str, e);
+            StatusCode::NOT_FOUND.into_response()
+          }
+        };
       }
     }
   }
@@ -334,10 +345,16 @@ async fn host_redirects(headers: HeaderMap, request: Request, next: middleware::
 // -- HTTP -> HTTPS redirect, following local_ssl_rust.
 
 async fn redirect_http_to_https_with_listener(listener: tokio::net::TcpListener, fqdn: String, https_port: u16) {
-  let redirect = move |uri: Uri| {
+  let redirect = move |headers: HeaderMap, uri: Uri| {
     let fqdn = fqdn.clone();
     async move {
-      match make_https_uri(uri, &fqdn, https_port) {
+      let redirect_host = headers
+        .get(header::HOST)
+        .and_then(|host| host.to_str().ok())
+        .and_then(|host| host.split(':').next())
+        .filter(|host| *host == "sudoku.dima.ai")
+        .unwrap_or(&fqdn);
+      match make_https_uri(uri, redirect_host, https_port) {
         Ok(u) => Ok(Redirect::permanent(&u.to_string())),
         Err(_) => {
           tracing::warn!("failed to build HTTPS URI");
@@ -443,7 +460,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     .merge(homepage_webauthn::router(webauthn_state))
     .merge(homepage_oauth::router(oauth_state))
     .merge(homepage_mcpclient::router(mcpclient_state))
-    .layer(middleware::from_fn(host_redirects));
+    .layer(middleware::from_fn_with_state(static_dir.join("pad.html"), host_redirects));
 
   // -- HTTP listeners (redirect to HTTPS), bind IPv4 and IPv6.
   let http_addr_v4 = SocketAddr::from(([0, 0, 0, 0], port_http));
