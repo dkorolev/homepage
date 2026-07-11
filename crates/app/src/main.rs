@@ -321,21 +321,21 @@ async fn zoom_redirect() -> impl IntoResponse {
 async fn host_redirects(
   State(pad_path): State<PathBuf>, headers: HeaderMap, request: Request, next: middleware::Next,
 ) -> Response {
+  if request.uri().path() == "/pad" || request.uri().path().starts_with("/pad/") {
+    return match tokio::fs::read(&pad_path).await {
+      Ok(body) => ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], body).into_response(),
+      Err(e) => {
+        tracing::error!("failed to serve {} for {}: {}", pad_path.display(), request.uri(), e);
+        StatusCode::NOT_FOUND.into_response()
+      }
+    };
+  }
   if let Some(host) = headers.get(header::HOST) {
     if let Ok(host_str) = host.to_str() {
       let hostname = host_str.split(':').next().unwrap_or(host_str);
       if hostname == "zoom.dima.ai" {
         tracing::info!("host redirect: {} -> {}", host_str, ZOOM_URL);
         return Redirect::permanent(ZOOM_URL).into_response();
-      }
-      if hostname == "sudoku.dima.ai" {
-        return match tokio::fs::read(&pad_path).await {
-          Ok(body) => ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], body).into_response(),
-          Err(e) => {
-            tracing::error!("failed to serve {} for {}: {}", pad_path.display(), host_str, e);
-            StatusCode::NOT_FOUND.into_response()
-          }
-        };
       }
     }
   }
@@ -345,16 +345,10 @@ async fn host_redirects(
 // -- HTTP -> HTTPS redirect, following local_ssl_rust.
 
 async fn redirect_http_to_https_with_listener(listener: tokio::net::TcpListener, fqdn: String, https_port: u16) {
-  let redirect = move |headers: HeaderMap, uri: Uri| {
+  let redirect = move |uri: Uri| {
     let fqdn = fqdn.clone();
     async move {
-      let redirect_host = headers
-        .get(header::HOST)
-        .and_then(|host| host.to_str().ok())
-        .and_then(|host| host.split(':').next())
-        .filter(|host| *host == "sudoku.dima.ai")
-        .unwrap_or(&fqdn);
-      match make_https_uri(uri, redirect_host, https_port) {
+      match make_https_uri(uri, &fqdn, https_port) {
         Ok(u) => Ok(Redirect::permanent(&u.to_string())),
         Err(_) => {
           tracing::warn!("failed to build HTTPS URI");
