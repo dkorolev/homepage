@@ -1,7 +1,7 @@
 use axum::{
   extract::{Form, Query, Request, State},
   handler::HandlerWithoutStateExt,
-  http::{header, uri::Scheme, HeaderMap, StatusCode, Uri},
+  http::{header, uri::Scheme, HeaderMap, HeaderValue, Method, StatusCode, Uri},
   middleware,
   response::{Html, IntoResponse, Redirect, Response},
   routing::get,
@@ -9,10 +9,12 @@ use axum::{
 };
 use axum_server::tls_rustls::RustlsConfig;
 use clap::Parser;
+use percent_encoding::percent_decode_str;
 use serde::Deserialize;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::UNIX_EPOCH;
 use tower_http::services::ServeDir;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -317,19 +319,109 @@ async fn zoom_redirect() -> impl IntoResponse {
   Redirect::permanent(ZOOM_URL)
 }
 
-/// Middleware: redirect based on Host header (e.g. zoom.dima.ai -> Zoom).
+/// Middleware for the pad alias, static cache headers, and Host-based redirects.
+#[derive(Clone)]
+struct RequestMiddlewareState {
+  static_dir: PathBuf,
+  pad_path: PathBuf,
+}
+
+fn static_relative_path(path: &str) -> Option<&str> {
+  path
+    .strip_prefix("/static/")
+    .or_else(|| path.strip_prefix("/.well-known/"))
+    .or_else(|| (path == "/static" || path == "/.well-known").then_some(""))
+}
+
+async fn static_etag(static_dir: &Path, request_path: &str) -> Option<HeaderValue> {
+  let relative = static_relative_path(request_path)?;
+  let decoded = percent_decode_str(relative).decode_utf8().ok()?;
+  if decoded.contains('\\') {
+    return None;
+  }
+
+  let mut file_path = static_dir.to_path_buf();
+  for component in Path::new(decoded.as_ref()).components() {
+    match component {
+      std::path::Component::Normal(segment) => file_path.push(segment),
+      _ => return None,
+    }
+  }
+  if file_path.is_dir() {
+    file_path.push("index.html");
+  }
+
+  file_etag(&file_path).await
+}
+
+async fn file_etag(path: &Path) -> Option<HeaderValue> {
+  let metadata = tokio::fs::metadata(path).await.ok()?;
+  if !metadata.is_file() {
+    return None;
+  }
+  let modified = metadata.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
+  let value = format!("W/\"{:x}-{:x}-{:x}\"", metadata.len(), modified.as_secs(), modified.subsec_nanos());
+  HeaderValue::from_str(&value).ok()
+}
+
+fn if_none_match_matches(headers: &HeaderMap, etag: &HeaderValue) -> bool {
+  let Some(condition) = headers.get(header::IF_NONE_MATCH).and_then(|value| value.to_str().ok()) else {
+    return false;
+  };
+  let etag = etag.to_str().unwrap_or_default();
+  let etag = etag.strip_prefix("W/").unwrap_or(etag);
+  condition.split(',').any(|candidate| {
+    let candidate = candidate.trim();
+    candidate == "*" || candidate.strip_prefix("W/").unwrap_or(candidate) == etag
+  })
+}
+
+fn add_static_cache_headers(response: &mut Response, etag: Option<&HeaderValue>) {
+  response.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+  if let Some(etag) = etag {
+    response.headers_mut().insert(header::ETAG, etag.clone());
+  }
+}
+
+fn not_modified(etag: &HeaderValue, last_modified: Option<HeaderValue>) -> Response {
+  let mut response = StatusCode::NOT_MODIFIED.into_response();
+  add_static_cache_headers(&mut response, Some(etag));
+  if let Some(last_modified) = last_modified {
+    response.headers_mut().insert(header::LAST_MODIFIED, last_modified);
+  }
+  response
+}
+
 async fn host_redirects(
-  State(pad_path): State<PathBuf>, headers: HeaderMap, request: Request, next: middleware::Next,
+  State(state): State<RequestMiddlewareState>, headers: HeaderMap, request: Request, next: middleware::Next,
 ) -> Response {
   if request.uri().path() == "/pad" || request.uri().path().starts_with("/pad/") {
-    return match tokio::fs::read(&pad_path).await {
-      Ok(body) => ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], body).into_response(),
+    return match tokio::fs::read(&state.pad_path).await {
+      Ok(body) => {
+        let etag = file_etag(&state.pad_path).await;
+        if matches!(*request.method(), Method::GET | Method::HEAD)
+          && etag.as_ref().is_some_and(|etag| if_none_match_matches(&headers, etag))
+        {
+          return not_modified(etag.as_ref().unwrap(), None);
+        }
+        let mut response = ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], body).into_response();
+        add_static_cache_headers(&mut response, etag.as_ref());
+        response
+      }
       Err(e) => {
-        tracing::error!("failed to serve {} for {}: {}", pad_path.display(), request.uri(), e);
-        StatusCode::NOT_FOUND.into_response()
+        tracing::error!("failed to serve {} for {}: {}", state.pad_path.display(), request.uri(), e);
+        let mut response = StatusCode::NOT_FOUND.into_response();
+        add_static_cache_headers(&mut response, None);
+        response
       }
     };
   }
+
+  let static_request = static_relative_path(request.uri().path()).is_some();
+  let etag = if static_request { static_etag(&state.static_dir, request.uri().path()).await } else { None };
+  let can_revalidate = matches!(*request.method(), Method::GET | Method::HEAD)
+    && etag.as_ref().is_some_and(|etag| if_none_match_matches(&headers, etag));
+
   if let Some(host) = headers.get(header::HOST) {
     if let Ok(host_str) = host.to_str() {
       let hostname = host_str.split(':').next().unwrap_or(host_str);
@@ -339,7 +431,16 @@ async fn host_redirects(
       }
     }
   }
-  next.run(request).await
+
+  let mut response = next.run(request).await;
+  if static_request {
+    if can_revalidate && response.status().is_success() {
+      let last_modified = response.headers().get(header::LAST_MODIFIED).cloned();
+      return not_modified(etag.as_ref().unwrap(), last_modified);
+    }
+    add_static_cache_headers(&mut response, etag.as_ref());
+  }
+  response
 }
 
 // -- HTTP -> HTTPS redirect, following local_ssl_rust.
@@ -439,6 +540,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let home_html = render_home(false);
   let home_html_debug = render_home(true);
   let state = AppState { home_html: Arc::new(home_html), home_html_debug: Arc::new(home_html_debug) };
+  let request_middleware_state =
+    RequestMiddlewareState { static_dir: static_dir.clone(), pad_path: static_dir.join("pad.html") };
 
   // -- Build the app router.
   let app = Router::new()
@@ -454,7 +557,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     .merge(homepage_webauthn::router(webauthn_state))
     .merge(homepage_oauth::router(oauth_state))
     .merge(homepage_mcpclient::router(mcpclient_state))
-    .layer(middleware::from_fn_with_state(static_dir.join("pad.html"), host_redirects));
+    .layer(middleware::from_fn_with_state(request_middleware_state, host_redirects));
 
   // -- HTTP listeners (redirect to HTTPS), bind IPv4 and IPv6.
   let http_addr_v4 = SocketAddr::from(([0, 0, 0, 0], port_http));
@@ -500,4 +603,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   });
 
   axum_server::bind_rustls(addr_v4, tls_config).serve(app.into_make_service()).await.map_err(|e| e.into())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use axum::body::Body;
+  use axum::http::Request;
+  use tower::ServiceExt;
+
+  fn static_test_app() -> Router {
+    let static_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../static");
+    let state = RequestMiddlewareState { static_dir: static_dir.clone(), pad_path: static_dir.join("favicon.svg") };
+    Router::new()
+      .nest_service("/static", ServeDir::new(&static_dir))
+      .layer(middleware::from_fn_with_state(state, host_redirects))
+  }
+
+  #[tokio::test]
+  async fn statics_and_pad_have_matching_cache_headers_and_revalidate() {
+    let app = static_test_app();
+    let static_response =
+      app.clone().oneshot(Request::get("/static/favicon.svg").body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(static_response.status(), StatusCode::OK);
+    assert_eq!(static_response.headers().get(header::CACHE_CONTROL).unwrap(), "no-cache");
+    let etag = static_response.headers().get(header::ETAG).unwrap().clone();
+
+    let pad_response = app.clone().oneshot(Request::get("/pad").body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(pad_response.status(), StatusCode::OK);
+    assert_eq!(pad_response.headers().get(header::CACHE_CONTROL).unwrap(), "no-cache");
+    assert_eq!(pad_response.headers().get(header::ETAG).unwrap(), &etag);
+
+    let not_modified = app
+      .oneshot(Request::get("/static/favicon.svg").header(header::IF_NONE_MATCH, etag).body(Body::empty()).unwrap())
+      .await
+      .unwrap();
+    assert_eq!(not_modified.status(), StatusCode::NOT_MODIFIED);
+    assert_eq!(not_modified.headers().get(header::CACHE_CONTROL).unwrap(), "no-cache");
+    assert!(not_modified.headers().contains_key(header::ETAG));
+  }
 }
