@@ -323,7 +323,22 @@ async fn zoom_redirect() -> impl IntoResponse {
 #[derive(Clone)]
 struct RequestMiddlewareState {
   static_dir: PathBuf,
-  pad_path: PathBuf,
+  /// Directory holding the files named by `pad_asset`; the static dir in production.
+  pad_dir: PathBuf,
+}
+
+/// Maps a `/pad` request path to the file it serves under `pad_dir`, and that file's content type.
+/// An allowlist rather than a URL-tail-to-filesystem mapping, so it needs none of the traversal
+/// guards `static_etag` carries.
+fn pad_asset(path: &str) -> Option<(&'static str, &'static str)> {
+  const SHELL: (&str, &str) = ("pad.html", "text/html; charset=utf-8");
+  match path {
+    "/pad" | "/pad/" => Some(SHELL),
+    // Relative to `/pad` the script resolves to `/pad.js`; relative to `/pad/`, to `/pad/pad.js`.
+    "/pad.js" | "/pad/pad.js" => Some(("pad.js", "text/javascript; charset=utf-8")),
+    // Every other subpath serves the shell, so the pad can route on the client.
+    _ => path.starts_with("/pad/").then_some(SHELL),
+  }
 }
 
 fn static_relative_path(path: &str) -> Option<&str> {
@@ -395,21 +410,22 @@ fn not_modified(etag: &HeaderValue, last_modified: Option<HeaderValue>) -> Respo
 async fn host_redirects(
   State(state): State<RequestMiddlewareState>, headers: HeaderMap, request: Request, next: middleware::Next,
 ) -> Response {
-  if request.uri().path() == "/pad" || request.uri().path().starts_with("/pad/") {
-    return match tokio::fs::read(&state.pad_path).await {
+  if let Some((file_name, content_type)) = pad_asset(request.uri().path()) {
+    let pad_path = state.pad_dir.join(file_name);
+    return match tokio::fs::read(&pad_path).await {
       Ok(body) => {
-        let etag = file_etag(&state.pad_path).await;
+        let etag = file_etag(&pad_path).await;
         if matches!(*request.method(), Method::GET | Method::HEAD)
           && etag.as_ref().is_some_and(|etag| if_none_match_matches(&headers, etag))
         {
           return not_modified(etag.as_ref().unwrap(), None);
         }
-        let mut response = ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], body).into_response();
+        let mut response = ([(header::CONTENT_TYPE, content_type)], body).into_response();
         add_static_cache_headers(&mut response, etag.as_ref());
         response
       }
       Err(e) => {
-        tracing::error!("failed to serve {} for {}: {}", state.pad_path.display(), request.uri(), e);
+        tracing::error!("failed to serve {} for {}: {}", pad_path.display(), request.uri(), e);
         let mut response = StatusCode::NOT_FOUND.into_response();
         add_static_cache_headers(&mut response, None);
         response
@@ -540,8 +556,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let home_html = render_home(false);
   let home_html_debug = render_home(true);
   let state = AppState { home_html: Arc::new(home_html), home_html_debug: Arc::new(home_html_debug) };
-  let request_middleware_state =
-    RequestMiddlewareState { static_dir: static_dir.clone(), pad_path: static_dir.join("pad.html") };
+  let request_middleware_state = RequestMiddlewareState { static_dir: static_dir.clone(), pad_dir: static_dir.clone() };
 
   // -- Build the app router.
   let app = Router::new()
@@ -612,27 +627,60 @@ mod tests {
   use axum::http::Request;
   use tower::ServiceExt;
 
-  fn static_test_app() -> Router {
-    let static_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../static");
-    let state = RequestMiddlewareState { static_dir: static_dir.clone(), pad_path: static_dir.join("favicon.svg") };
+  const PAD_SHELL_BODY: &str = "<!doctype html><title>pad</title>";
+  const PAD_SCRIPT_BODY: &str = "console.log('pad');";
+
+  fn repo_static_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../static")
+  }
+
+  /// The pad files ship with the deployment rather than the repo, so tests serve them from a
+  /// scratch directory instead of `static/`.
+  fn pad_test_dir(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("homepage-pad-test-{}-{}", std::process::id(), name));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("pad.html"), PAD_SHELL_BODY).unwrap();
+    std::fs::write(dir.join("pad.js"), PAD_SCRIPT_BODY).unwrap();
+    dir
+  }
+
+  fn test_app(pad_dir: PathBuf) -> Router {
+    let static_dir = repo_static_dir();
+    let state = RequestMiddlewareState { static_dir: static_dir.clone(), pad_dir };
     Router::new()
       .nest_service("/static", ServeDir::new(&static_dir))
       .layer(middleware::from_fn_with_state(state, host_redirects))
   }
 
-  #[tokio::test]
-  async fn statics_and_pad_have_matching_cache_headers_and_revalidate() {
-    let app = static_test_app();
-    let static_response =
-      app.clone().oneshot(Request::get("/static/favicon.svg").body(Body::empty()).unwrap()).await.unwrap();
-    assert_eq!(static_response.status(), StatusCode::OK);
-    assert_eq!(static_response.headers().get(header::CACHE_CONTROL).unwrap(), "no-cache");
-    let etag = static_response.headers().get(header::ETAG).unwrap().clone();
+  async fn get(app: &Router, path: &str) -> Response {
+    app.clone().oneshot(Request::get(path).body(Body::empty()).unwrap()).await.unwrap()
+  }
 
-    let pad_response = app.clone().oneshot(Request::get("/pad").body(Body::empty()).unwrap()).await.unwrap();
-    assert_eq!(pad_response.status(), StatusCode::OK);
-    assert_eq!(pad_response.headers().get(header::CACHE_CONTROL).unwrap(), "no-cache");
-    assert_eq!(pad_response.headers().get(header::ETAG).unwrap(), &etag);
+  async fn body_string(response: Response) -> String {
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    String::from_utf8(bytes.to_vec()).unwrap()
+  }
+
+  #[test]
+  fn pad_asset_maps_both_relative_forms_of_the_script() {
+    assert_eq!(pad_asset("/pad").unwrap().0, "pad.html");
+    assert_eq!(pad_asset("/pad/").unwrap().0, "pad.html");
+    // Reached from `/pad` and from `/pad/` respectively.
+    assert_eq!(pad_asset("/pad.js").unwrap().0, "pad.js");
+    assert_eq!(pad_asset("/pad/pad.js").unwrap().0, "pad.js");
+    // Client-side routes fall back to the shell; unrelated paths are left to the router.
+    assert_eq!(pad_asset("/pad/whatever").unwrap().0, "pad.html");
+    assert!(pad_asset("/padding").is_none());
+    assert!(pad_asset("/static/pad.js").is_none());
+  }
+
+  #[tokio::test]
+  async fn statics_have_cache_headers_and_revalidate() {
+    let app = test_app(repo_static_dir());
+    let response = get(&app, "/static/favicon.svg").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers().get(header::CACHE_CONTROL).unwrap(), "no-cache");
+    let etag = response.headers().get(header::ETAG).unwrap().clone();
 
     let not_modified = app
       .oneshot(Request::get("/static/favicon.svg").header(header::IF_NONE_MATCH, etag).body(Body::empty()).unwrap())
@@ -641,5 +689,59 @@ mod tests {
     assert_eq!(not_modified.status(), StatusCode::NOT_MODIFIED);
     assert_eq!(not_modified.headers().get(header::CACHE_CONTROL).unwrap(), "no-cache");
     assert!(not_modified.headers().contains_key(header::ETAG));
+  }
+
+  #[tokio::test]
+  async fn pad_serves_the_script_with_its_own_content_type() {
+    let pad_dir = pad_test_dir("script");
+    let app = test_app(pad_dir.clone());
+
+    for path in ["/pad", "/pad/", "/pad/some/client/route"] {
+      let response = get(&app, path).await;
+      assert_eq!(response.status(), StatusCode::OK, "{path}");
+      assert_eq!(response.headers().get(header::CONTENT_TYPE).unwrap(), "text/html; charset=utf-8", "{path}");
+      assert_eq!(body_string(response).await, PAD_SHELL_BODY, "{path}");
+    }
+
+    for path in ["/pad.js", "/pad/pad.js"] {
+      let response = get(&app, path).await;
+      assert_eq!(response.status(), StatusCode::OK, "{path}");
+      assert_eq!(response.headers().get(header::CONTENT_TYPE).unwrap(), "text/javascript; charset=utf-8", "{path}");
+      assert_eq!(response.headers().get(header::CACHE_CONTROL).unwrap(), "no-cache", "{path}");
+      // The shell used to be served here, under a `text/html` content type.
+      assert_eq!(body_string(response).await, PAD_SCRIPT_BODY, "{path}");
+    }
+
+    std::fs::remove_dir_all(&pad_dir).unwrap();
+  }
+
+  #[tokio::test]
+  async fn pad_script_revalidates() {
+    let pad_dir = pad_test_dir("revalidate");
+    let app = test_app(pad_dir.clone());
+
+    let response = get(&app, "/pad/pad.js").await;
+    let etag = response.headers().get(header::ETAG).unwrap().clone();
+
+    let not_modified = app
+      .oneshot(Request::get("/pad/pad.js").header(header::IF_NONE_MATCH, etag).body(Body::empty()).unwrap())
+      .await
+      .unwrap();
+    assert_eq!(not_modified.status(), StatusCode::NOT_MODIFIED);
+    assert_eq!(not_modified.headers().get(header::CACHE_CONTROL).unwrap(), "no-cache");
+
+    std::fs::remove_dir_all(&pad_dir).unwrap();
+  }
+
+  #[tokio::test]
+  async fn pad_shell_and_script_have_distinct_etags() {
+    let pad_dir = pad_test_dir("etags");
+    let app = test_app(pad_dir.clone());
+
+    let shell = get(&app, "/pad").await.headers().get(header::ETAG).unwrap().clone();
+    let script = get(&app, "/pad/pad.js").await.headers().get(header::ETAG).unwrap().clone();
+    assert_ne!(shell, script);
+
+    std::fs::remove_dir_all(&pad_dir).unwrap();
   }
 }
