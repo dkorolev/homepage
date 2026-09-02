@@ -1,7 +1,7 @@
 use axum::{
   extract::{Form, Query, Request, State},
   handler::HandlerWithoutStateExt,
-  http::{header, uri::Scheme, HeaderMap, HeaderValue, Method, StatusCode, Uri},
+  http::{header, uri::Authority, HeaderMap, HeaderValue, Method, StatusCode, Uri},
   middleware,
   response::{Html, IntoResponse, Redirect, Response},
   routing::get,
@@ -10,7 +10,12 @@ use axum::{
 use axum_server::tls_rustls::RustlsConfig;
 use clap::Parser;
 use percent_encoding::percent_decode_str;
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::server::{ClientHello, ResolvesServerCert};
+use rustls::sign::CertifiedKey;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -32,6 +37,7 @@ struct Args {
   port_https: u16,
 
   /// Let's Encrypt directory: FQDN = last path component, must contain fullchain.pem and privkey.pem.
+  /// Sibling directories holding the same two files are served too, by SNI, under their own names.
   #[arg(long, required_unless_present = "fqdn")]
   letsencrypt: Option<PathBuf>,
 
@@ -123,6 +129,93 @@ fn resolve_fqdn_cert_key(args: &Args) -> Result<(String, PathBuf, PathBuf), Box<
     )
   })?;
   Ok((fqdn, cert, key))
+}
+
+/// Certificates found next to the `--letsencrypt` directory: every sibling directory holding
+/// `fullchain.pem` and `privkey.pem` is served by SNI under the sibling's name (e.g. `current.ai`).
+fn sibling_letsencrypt_dirs(args: &Args) -> Vec<(String, PathBuf, PathBuf)> {
+  let Some(ref dir) = args.letsencrypt else {
+    return Vec::new();
+  };
+  let dir = expand_tilde(dir);
+  let Some(parent) = dir.parent().filter(|p| !p.as_os_str().is_empty()) else {
+    return Vec::new();
+  };
+  let entries = match std::fs::read_dir(parent) {
+    Ok(entries) => entries,
+    Err(e) => {
+      tracing::warn!("cannot list {} for sibling certificates: {}", parent.display(), e);
+      return Vec::new();
+    }
+  };
+  let mut found = Vec::new();
+  for entry in entries.flatten() {
+    let path = entry.path();
+    if entry.file_name() == dir.file_name().unwrap_or_default() || !path.is_dir() {
+      continue;
+    }
+    let (cert, key) = (path.join("fullchain.pem"), path.join("privkey.pem"));
+    if !cert.is_file() || !key.is_file() {
+      continue;
+    }
+    if let Some(name) = entry.file_name().to_str() {
+      found.push((name.to_string(), cert, key));
+    }
+  }
+  found.sort();
+  found
+}
+
+fn load_certified_key(cert: &Path, key: &Path) -> Result<CertifiedKey, Box<dyn std::error::Error + Send + Sync>> {
+  let chain = CertificateDer::pem_file_iter(cert)
+    .map_err(|e| format!("{}: {}", cert.display(), e))?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| format!("{}: {}", cert.display(), e))?;
+  if chain.is_empty() {
+    return Err(format!("{}: no certificates found", cert.display()).into());
+  }
+  let key = PrivateKeyDer::from_pem_file(key).map_err(|e| format!("{}: {}", key.display(), e))?;
+  let provider = rustls::crypto::CryptoProvider::get_default().ok_or("no default rustls crypto provider")?;
+  CertifiedKey::from_der(chain, key, provider).map_err(|e| format!("{}: {}", cert.display(), e).into())
+}
+
+// -- SNI certificate resolver: one certificate per hostname, the `--letsencrypt` one otherwise.
+
+#[derive(Debug)]
+struct SniCertResolver {
+  default: Arc<CertifiedKey>,
+  /// Keyed by lowercase hostname.
+  by_name: HashMap<String, Arc<CertifiedKey>>,
+}
+
+/// Looks a server name up by exact match first, then by its parent domains, so `www.current.ai`
+/// gets the `current.ai` entry when there is no closer one.
+fn sni_lookup<'a, V>(by_name: &'a HashMap<String, V>, server_name: &str) -> Option<&'a V> {
+  let mut candidate = server_name.trim_end_matches('.').to_ascii_lowercase();
+  loop {
+    if let Some(value) = by_name.get(&candidate) {
+      return Some(value);
+    }
+    match candidate.split_once('.') {
+      Some((_, parent)) if !parent.is_empty() => candidate = parent.to_string(),
+      _ => return None,
+    }
+  }
+}
+
+impl ResolvesServerCert for SniCertResolver {
+  fn resolve(&self, client_hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+    let chosen = client_hello.server_name().and_then(|name| sni_lookup(&self.by_name, name));
+    Some(chosen.unwrap_or(&self.default).clone())
+  }
+}
+
+fn build_tls_config(default: CertifiedKey, by_name: HashMap<String, Arc<CertifiedKey>>) -> RustlsConfig {
+  let resolver = SniCertResolver { default: Arc::new(default), by_name };
+  let mut config = rustls::ServerConfig::builder().with_no_client_auth().with_cert_resolver(Arc::new(resolver));
+  // Same ALPN list `RustlsConfig::from_pem_file` sets, so HTTP/2 keeps working.
+  config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+  RustlsConfig::from_config(Arc::new(config))
 }
 
 // -- Profile data, matching the original `content/data.js`.
@@ -319,6 +412,80 @@ async fn zoom_redirect() -> impl IntoResponse {
   Redirect::permanent(ZOOM_URL)
 }
 
+// -- current.ai: a landing page pointing at the GitHub repo, then on to dima.ai.
+
+const CURRENT_HOST: &str = "current.ai";
+const CURRENT_GITHUB_URL: &str = "https://github.com/c5t/current";
+const CURRENT_LANDING_NEXT_URL: &str = "https://dima.ai";
+const CURRENT_LANDING_SECONDS: u32 = 3;
+
+fn current_landing_html() -> String {
+  format!(
+    r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="{seconds};url={next}">
+<title>Current</title>
+<style>
+  body {{ margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }}
+  p {{ font-size: 1.5rem; padding: 0 1rem; text-align: center; }}
+</style>
+</head>
+<body>
+<p>This is Current, see <a href="{github}">github.com/c5t/current</a>.</p>
+</body>
+</html>
+"#,
+    seconds = CURRENT_LANDING_SECONDS,
+    next = CURRENT_LANDING_NEXT_URL,
+    github = CURRENT_GITHUB_URL,
+  )
+}
+
+/// What a hostname other than the FQDN gets from this server. The hostname the caller asked for
+/// decides, on both the HTTP and the HTTPS listener.
+#[derive(Debug, PartialEq)]
+enum HostRule {
+  /// Every path goes to this URL.
+  Redirect(&'static str),
+  /// Served under this canonical hostname; other spellings (`www.` and the like) redirect to it,
+  /// keeping the path.
+  Serve(&'static str),
+}
+
+fn host_rule(hostname: &str) -> Option<HostRule> {
+  let hostname = hostname.trim_end_matches('.').to_ascii_lowercase();
+  if hostname == "zoom.dima.ai" {
+    return Some(HostRule::Redirect(ZOOM_URL));
+  }
+  if hostname == CURRENT_HOST || hostname.ends_with(&format!(".{}", CURRENT_HOST)) {
+    return Some(HostRule::Serve(CURRENT_HOST));
+  }
+  None
+}
+
+/// Hostname and port the caller asked for. HTTP/2 carries them in the request URI's authority and
+/// sends no `Host` header; HTTP/1.1 requests have a relative URI and a `Host` header.
+fn request_host(uri: &Uri, headers: &HeaderMap) -> Option<(String, Option<u16>)> {
+  let authority = match uri.authority() {
+    Some(authority) => authority.clone(),
+    None => headers.get(header::HOST)?.to_str().ok()?.parse::<Authority>().ok()?,
+  };
+  Some((authority.host().to_string(), authority.port_u16()))
+}
+
+/// The same path and query on HTTPS at `host`, with the port only when it is not the default.
+fn https_location(host: &str, port: Option<u16>, uri: &Uri) -> String {
+  let path = uri.path_and_query().map(|p| p.as_str()).unwrap_or("/");
+  match port {
+    Some(port) if port != 443 => format!("https://{}:{}{}", host, port, path),
+    _ => format!("https://{}{}", host, path),
+  }
+}
+
 /// Middleware for the pad alias, static cache headers, and Host-based redirects.
 #[derive(Clone)]
 struct RequestMiddlewareState {
@@ -341,7 +508,14 @@ fn pad_asset(path: &str) -> Option<(&'static str, &'static str)> {
   }
 }
 
+/// Where certbot's webroot mode writes ACME HTTP-01 tokens, relative to the static dir; the URL
+/// path is the same, unlike the rest of `/.well-known`, which maps onto the static root.
+const ACME_CHALLENGE_DIR: &str = ".well-known/acme-challenge";
+
 fn static_relative_path(path: &str) -> Option<&str> {
+  if path.starts_with("/.well-known/acme-challenge/") {
+    return path.strip_prefix('/');
+  }
   path
     .strip_prefix("/static/")
     .or_else(|| path.strip_prefix("/.well-known/"))
@@ -410,6 +584,26 @@ fn not_modified(etag: &HeaderValue, last_modified: Option<HeaderValue>) -> Respo
 async fn host_redirects(
   State(state): State<RequestMiddlewareState>, headers: HeaderMap, request: Request, next: middleware::Next,
 ) -> Response {
+  if let Some((hostname, port)) = request_host(request.uri(), &headers) {
+    match host_rule(&hostname) {
+      Some(HostRule::Redirect(target)) => {
+        tracing::info!("host redirect: {}{} -> {}", hostname, request.uri().path(), target);
+        return Redirect::permanent(target).into_response();
+      }
+      Some(HostRule::Serve(canonical)) if hostname != canonical => {
+        let location = https_location(canonical, port, request.uri());
+        tracing::info!("host redirect: {}{} -> {}", hostname, request.uri().path(), location);
+        return Redirect::permanent(&location).into_response();
+      }
+      // ACME HTTP-01 challenges must reach the static files, so certbot's webroot mode can issue
+      // and renew this host's certificate while the server keeps running.
+      Some(HostRule::Serve(_)) if !request.uri().path().starts_with("/.well-known/") => {
+        return Html(current_landing_html()).into_response();
+      }
+      Some(HostRule::Serve(_)) | None => {}
+    }
+  }
+
   if let Some((file_name, content_type)) = pad_asset(request.uri().path()) {
     let pad_path = state.pad_dir.join(file_name);
     return match tokio::fs::read(&pad_path).await {
@@ -438,16 +632,6 @@ async fn host_redirects(
   let can_revalidate = matches!(*request.method(), Method::GET | Method::HEAD)
     && etag.as_ref().is_some_and(|etag| if_none_match_matches(&headers, etag));
 
-  if let Some(host) = headers.get(header::HOST) {
-    if let Ok(host_str) = host.to_str() {
-      let hostname = host_str.split(':').next().unwrap_or(host_str);
-      if hostname == "zoom.dima.ai" {
-        tracing::info!("host redirect: {} -> {}", host_str, ZOOM_URL);
-        return Redirect::permanent(ZOOM_URL).into_response();
-      }
-    }
-  }
-
   let mut response = next.run(request).await;
   if static_request {
     if can_revalidate && response.status().is_success() {
@@ -462,32 +646,24 @@ async fn host_redirects(
 // -- HTTP -> HTTPS redirect, following local_ssl_rust.
 
 async fn redirect_http_to_https_with_listener(listener: tokio::net::TcpListener, fqdn: String, https_port: u16) {
-  let redirect = move |uri: Uri| {
+  let redirect = move |headers: HeaderMap, uri: Uri| {
     let fqdn = fqdn.clone();
-    async move {
-      match make_https_uri(uri, &fqdn, https_port) {
-        Ok(u) => Ok(Redirect::permanent(&u.to_string())),
-        Err(_) => {
-          tracing::warn!("failed to build HTTPS URI");
-          Err(StatusCode::BAD_REQUEST)
-        }
-      }
-    }
+    async move { Redirect::permanent(&http_redirect_location(&headers, &uri, &fqdn, https_port)) }
   };
 
   axum::serve(listener, redirect.into_make_service()).await.expect("HTTP redirect server");
 }
 
-fn make_https_uri(uri: Uri, authority_host: &str, https_port: u16) -> Result<Uri, StatusCode> {
-  let authority =
-    if https_port == 443 { authority_host.to_string() } else { format!("{}:{}", authority_host, https_port) };
-  let mut parts = uri.into_parts();
-  parts.scheme = Some(Scheme::HTTPS);
-  parts.authority = Some(authority.parse().map_err(|_| StatusCode::BAD_REQUEST)?);
-  if parts.path_and_query.is_none() {
-    parts.path_and_query = Some("/".parse().unwrap());
-  }
-  Uri::from_parts(parts).map_err(|_| StatusCode::BAD_REQUEST)
+/// Where a plain-HTTP request goes: a wholesale-redirected host straight to its target, a host
+/// served under a canonical name to that name on HTTPS, anything else to `fqdn` on HTTPS.
+fn http_redirect_location(headers: &HeaderMap, uri: &Uri, fqdn: &str, https_port: u16) -> String {
+  let hostname = request_host(uri, headers).map(|(hostname, _)| hostname);
+  let target_host = match hostname.as_deref().and_then(host_rule) {
+    Some(HostRule::Redirect(target)) => return target.to_string(),
+    Some(HostRule::Serve(canonical)) => canonical,
+    None => fqdn,
+  };
+  https_location(target_host, Some(https_port), uri)
 }
 
 // -- Main.
@@ -509,11 +685,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
   let (fqdn, cert, key) = resolve_fqdn_cert_key(&args)?;
 
-  let tls_config = RustlsConfig::from_pem_file(&cert, &key).await.map_err(|e| format!("TLS config: {}", e))?;
+  let default_certified_key = load_certified_key(&cert, &key).map_err(|e| format!("TLS config: {}", e))?;
 
   tracing::info!("FQDN: {}", fqdn);
   tracing::info!("cert: {}", cert.display());
   tracing::info!("key:  {}", key.display());
+
+  // A broken sibling certificate is logged and skipped rather than taking the whole server down.
+  let mut certs_by_name: HashMap<String, Arc<CertifiedKey>> = HashMap::new();
+  for (name, sibling_cert, sibling_key) in sibling_letsencrypt_dirs(&args) {
+    match load_certified_key(&sibling_cert, &sibling_key) {
+      Ok(certified_key) => {
+        tracing::info!("SNI cert: {} from {}", name, sibling_cert.display());
+        certs_by_name.insert(name.to_ascii_lowercase(), Arc::new(certified_key));
+      }
+      Err(e) => tracing::warn!("skipping SNI cert for {}: {}", name, e),
+    }
+  }
+  let tls_config = build_tls_config(default_certified_key, certs_by_name);
 
   // -- Initialize WebAuthn for /passkey.
   let origin_str =
@@ -567,6 +756,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     .route("/zoom", get(zoom_redirect))
     .route("/anthropiclimits", get(anthropiclimits_page))
     .nest_service("/static", ServeDir::new(&static_dir))
+    .nest_service("/.well-known/acme-challenge", ServeDir::new(static_dir.join(ACME_CHALLENGE_DIR)))
     .nest_service("/.well-known", ServeDir::new(&static_dir))
     .with_state(state)
     .merge(homepage_webauthn::router(webauthn_state))
@@ -646,9 +836,12 @@ mod tests {
 
   fn test_app(pad_dir: PathBuf) -> Router {
     let static_dir = repo_static_dir();
-    let state = RequestMiddlewareState { static_dir: static_dir.clone(), pad_dir };
+    let state = RequestMiddlewareState { static_dir: static_dir.clone(), pad_dir: pad_dir.clone() };
     Router::new()
       .nest_service("/static", ServeDir::new(&static_dir))
+      // Production keeps ACME tokens under the static dir; tests keep them in scratch.
+      .nest_service("/.well-known/acme-challenge", ServeDir::new(pad_dir.join(ACME_CHALLENGE_DIR)))
+      .nest_service("/.well-known", ServeDir::new(&static_dir))
       .layer(middleware::from_fn_with_state(state, host_redirects))
   }
 
@@ -659,6 +852,110 @@ mod tests {
   async fn body_string(response: Response) -> String {
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     String::from_utf8(bytes.to_vec()).unwrap()
+  }
+
+  #[test]
+  fn host_rules_cover_every_current_ai_spelling() {
+    assert_eq!(host_rule("current.ai"), Some(HostRule::Serve(CURRENT_HOST)));
+    assert_eq!(host_rule("CURRENT.AI"), Some(HostRule::Serve(CURRENT_HOST)));
+    assert_eq!(host_rule("www.current.ai"), Some(HostRule::Serve(CURRENT_HOST)));
+    assert_eq!(host_rule("current.ai."), Some(HostRule::Serve(CURRENT_HOST)));
+    assert_eq!(host_rule("zoom.dima.ai"), Some(HostRule::Redirect(ZOOM_URL)));
+    assert_eq!(host_rule("notcurrent.ai"), None);
+    assert_eq!(host_rule("dima.ai"), None);
+  }
+
+  #[tokio::test]
+  async fn current_ai_serves_the_landing_page_and_canonicalizes_other_spellings() {
+    let pad_dir = pad_test_dir("current-ai");
+    let app = test_app(pad_dir.clone());
+
+    // The bare host gets the landing page on every path, statics and the pad alias included.
+    for path in ["/", "/some/path?q=1", "/pad", "/static/favicon.svg", "/.well-known"] {
+      let request = Request::get(path).header(header::HOST, "current.ai").body(Body::empty()).unwrap();
+      let response = app.clone().oneshot(request).await.unwrap();
+      assert_eq!(response.status(), StatusCode::OK, "{path}");
+      assert_eq!(response.headers().get(header::CONTENT_TYPE).unwrap(), "text/html; charset=utf-8", "{path}");
+      let body = body_string(response).await;
+      assert!(body.contains(&format!(r#"<a href="{}">github.com/c5t/current</a>"#, CURRENT_GITHUB_URL)), "{path}");
+      assert!(body.contains(&format!(r#"content="3;url={}""#, CURRENT_LANDING_NEXT_URL)), "{path}");
+    }
+
+    // Other spellings redirect to the bare host, keeping path, query, and a non-default port.
+    for (host, path, location) in [
+      ("www.current.ai", "/", "https://current.ai/"),
+      ("www.current.ai:443", "/a/b?c=d", "https://current.ai/a/b?c=d"),
+      ("www.current.ai:8443", "/pad", "https://current.ai:8443/pad"),
+      ("WWW.Current.AI", "/", "https://current.ai/"),
+      ("current.ai.", "/", "https://current.ai/"),
+    ] {
+      let request = Request::get(path).header(header::HOST, host).body(Body::empty()).unwrap();
+      let response = app.clone().oneshot(request).await.unwrap();
+      assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT, "{host}{path}");
+      assert_eq!(response.headers().get(header::LOCATION).unwrap(), location, "{host}{path}");
+    }
+
+    // HTTP/2 requests carry the host in the URI authority and no `Host` header at all.
+    let request = Request::get("https://www.current.ai:8443/x").body(Body::empty()).unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+    assert_eq!(response.headers().get(header::LOCATION).unwrap(), "https://current.ai:8443/x");
+    let request = Request::get("https://current.ai/x").body(Body::empty()).unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // ACME challenges pass through to the static files, so certbot's webroot mode keeps working.
+    std::fs::create_dir_all(pad_dir.join(ACME_CHALLENGE_DIR)).unwrap();
+    std::fs::write(pad_dir.join(ACME_CHALLENGE_DIR).join("token"), "token.thumbprint").unwrap();
+    let request =
+      Request::get("/.well-known/acme-challenge/token").header(header::HOST, "current.ai").body(Body::empty()).unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body_string(response).await, "token.thumbprint");
+
+    // Other hosts still get their own content, the pad alias included.
+    let request = Request::get("/pad").header(header::HOST, "dima.ai").body(Body::empty()).unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    std::fs::remove_dir_all(&pad_dir).unwrap();
+  }
+
+  #[test]
+  fn plain_http_goes_to_https_on_the_canonical_host() {
+    let mut headers = HeaderMap::new();
+    let uri: Uri = "/anything?x=y".parse().unwrap();
+
+    headers.insert(header::HOST, HeaderValue::from_static("current.ai"));
+    assert_eq!(http_redirect_location(&headers, &uri, "dima.ai", 443), "https://current.ai/anything?x=y");
+    headers.insert(header::HOST, HeaderValue::from_static("www.current.ai"));
+    assert_eq!(http_redirect_location(&headers, &uri, "dima.ai", 443), "https://current.ai/anything?x=y");
+    assert_eq!(http_redirect_location(&headers, &uri, "dima.ai", 8443), "https://current.ai:8443/anything?x=y");
+
+    headers.insert(header::HOST, HeaderValue::from_static("dima.ai"));
+    assert_eq!(http_redirect_location(&headers, &uri, "dima.ai", 443), "https://dima.ai/anything?x=y");
+    let root: Uri = "/".parse().unwrap();
+    assert_eq!(http_redirect_location(&headers, &root, "dima.ai", 8443), "https://dima.ai:8443/");
+
+    // No usable Host header at all: still the FQDN.
+    headers.remove(header::HOST);
+    assert_eq!(http_redirect_location(&headers, &root, "dima.ai", 443), "https://dima.ai/");
+
+    // Plain-HTTP requests for the Zoom hostname used to bounce via https://dima.ai/ instead.
+    headers.insert(header::HOST, HeaderValue::from_static("zoom.dima.ai"));
+    assert_eq!(http_redirect_location(&headers, &root, "dima.ai", 443), ZOOM_URL);
+  }
+
+  #[test]
+  fn sni_lookup_falls_back_to_parent_domains() {
+    let by_name: HashMap<String, &str> =
+      [("current.ai".to_string(), "current"), ("dima.ai".to_string(), "dima")].into_iter().collect();
+    assert_eq!(sni_lookup(&by_name, "current.ai"), Some(&"current"));
+    assert_eq!(sni_lookup(&by_name, "Current.AI"), Some(&"current"));
+    assert_eq!(sni_lookup(&by_name, "www.current.ai"), Some(&"current"));
+    assert_eq!(sni_lookup(&by_name, "a.b.dima.ai"), Some(&"dima"));
+    assert_eq!(sni_lookup(&by_name, "example.com"), None);
+    assert_eq!(sni_lookup(&by_name, "ai"), None);
   }
 
   #[test]

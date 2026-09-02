@@ -12,6 +12,28 @@ Extended quite a bit for my personal tasks since.
 (cd ~/website; git merge --ff-only dev && cargo build --profile fast-release -p homepage && sudo systemctl restart website.service && echo OK)
 ```
 
+## Certificates
+
+The server takes one Let's Encrypt directory, and its last path component is the FQDN:
+
+```
+--letsencrypt /etc/letsencrypt/live/dima.ai
+```
+
+Every sibling directory that also holds `fullchain.pem` and `privkey.pem` is loaded at startup and served by SNI under its own name, so `/etc/letsencrypt/live/current.ai/` makes `https://current.ai` present the `current.ai` certificate. A sibling that fails to load is logged and skipped, and the startup log lists each one picked up as `SNI cert: <name>`. Restart the service after adding or renewing one.
+
+ACME HTTP-01 tokens are served from `static/.well-known/acme-challenge/` on every hostname, so certbot's webroot mode works while the server keeps running. With DNS for the new name pointing at this host and the current build deployed:
+
+```
+sudo certbot certonly --webroot -w /home/ec2-user/website/static \
+  -d current.ai -d www.current.ai --cert-name current.ai \
+  --deploy-hook 'systemctl restart website.service'
+```
+
+The service user must be able to list `/etc/letsencrypt/live` and read the new directory's key, the same way it reads the `dima.ai` one.
+
+`https://current.ai` serves a landing page pointing at https://github.com/c5t/current that moves on to https://dima.ai after three seconds; every path gets that page. Plain HTTP redirects to HTTPS, and `www.current.ai` (or any other subdomain) redirects to `current.ai`, keeping the path. `zoom.dima.ai` redirects to Zoom on both listeners. The hostname the caller asked for decides.
+
 ## Setup
 
 ```
