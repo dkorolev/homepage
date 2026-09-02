@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login {% if success %}Success{% else %}Error{% endif %}</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" sizes="any">
+  <style>
+    :root {
+      --bg: #0f0f12;
+      --surface: #1a1a1f;
+      --text: #e4e4e7;
+      --muted: #71717a;
+      --accent: #22c55e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      line-height: 1.6;
+    }
+    .card {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 2rem 2.5rem;
+      max-width: 28rem;
+      width: 100%;
+      border: 1px solid rgba(255,255,255,0.06);
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+    h1 {
+      margin: 0 0 0.5rem;
+      font-size: 1.5rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 500;
+      padding: 0.25rem 0.6rem;
+      border-radius: 6px;
+      margin-bottom: 1.25rem;
+    }
+    .badge-success {
+      color: var(--accent);
+      background: rgba(34, 197, 94, 0.12);
+    }
+    .badge-error {
+      color: #ef4444;
+      background: rgba(239, 68, 68, 0.12);
+    }
+    p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.9375rem;
+    }
+    .profile {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-top: 1.25rem;
+    }
+    .avatar {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2px solid rgba(255,255,255,0.1);
+    }
+    .profile-info {
+      min-width: 0;
+    }
+    .profile-name {
+      font-size: 1.125rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .profile-email {
+      font-size: 0.875rem;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .provider-tag {
+      display: inline-block;
+      margin-top: 1rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+      background: rgba(255,255,255,0.06);
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+    }
+    details {
+      margin-top: 1.25rem;
+    }
+    summary {
+      cursor: pointer;
+      font-size: 0.8125rem;
+      color: var(--muted);
+      user-select: none;
+    }
+    summary:hover { color: var(--text); }
+    pre {
+      margin: 0.75rem 0 0;
+      padding: 0.75rem;
+      background: rgba(0,0,0,0.3);
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+      color: var(--muted);
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .back-link {
+      display: block;
+      margin-top: 0;
+      color: #3b82f6;
+      text-decoration: none;
+      font-size: 0.875rem;
+    }
+    .back-link:hover { color: #60a5fa; }
+    .logout-btn {
+      display: inline-block;
+      margin-top: 1.5rem;
+      padding: 0.5rem 1.25rem;
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      text-decoration: none;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .logout-btn:hover {
+      background: rgba(239, 68, 68, 0.25);
+      border-color: rgba(239, 68, 68, 0.5);
+    }
+    .error-message {
+      margin-top: 1rem;
+      color: #ef4444;
+      font-size: 0.9375rem;
+    }
+    .copy-curl-btn {
+      padding: 0.4rem 0.9rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: var(--text);
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .copy-curl-btn:hover {
+      background: rgba(255,255,255,0.12);
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <a href="/login" class="back-link" style="margin-bottom:1.25rem;">&larr; Back to login</a>
+    {% if success %}
+    <span class="badge badge-success">{{ provider_name }}</span>
+    <h1>Authenticated</h1>
+    <p>Successfully signed in via OAuth 2.0.</p>
+    {% if !avatar_url.is_empty() || !user_name.is_empty() %}
+    <div class="profile">
+      {% if !avatar_url.is_empty() %}
+      <img class="avatar" src="{{ avatar_url }}" alt="Avatar">
+      {% endif %}
+      <div class="profile-info">
+        {% if !user_name.is_empty() %}
+        <div class="profile-name">{{ user_name }}</div>
+        {% endif %}
+        {% if !user_email.is_empty() %}
+        <div class="profile-email">{{ user_email }}</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+    {% if !raw_json.is_empty() %}
+    <details>
+      <summary>Raw userinfo JSON</summary>
+      <pre>{{ raw_json }}</pre>
+    </details>
+    {% endif %}
+    {% if success && !curl_userinfo.is_empty() %}
+    <details style="margin-top: 1rem;" open>
+      <summary>Request what this token grants (RFC)</summary>
+      <p style="font-size: 0.8125rem; color: var(--muted); margin: 0.5rem 0 0.25rem;">UserInfo (OIDC / OAuth 2.0 Bearer)</p>
+      <pre class="curl-pre" style="margin-bottom: 0.5rem;">{{ curl_userinfo }}</pre>
+      <button type="button" class="copy-curl-btn" data-curl="{{ curl_userinfo }}">Copy curl</button>
+      {% if !curl_introspect.is_empty() %}
+      <p style="font-size: 0.8125rem; color: var(--muted); margin: 1rem 0 0.25rem;">Introspection (RFC 7662)</p>
+      <pre class="curl-pre" style="margin-bottom: 0.5rem;">{{ curl_introspect }}</pre>
+      <button type="button" class="copy-curl-btn" data-curl="{{ curl_introspect }}">Copy curl</button>
+      {% endif %}
+    </details>
+    <script>
+      (function() {
+        function initCopy(btn) {
+          if (!btn) return;
+          btn.addEventListener('click', function() {
+            var cmd = this.getAttribute('data-curl');
+            if (cmd && navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(cmd);
+              this.textContent = 'Copied!';
+              setTimeout(function() { btn.textContent = 'Copy curl'; }, 1500);
+            }
+          });
+        }
+        document.querySelectorAll('.copy-curl-btn').forEach(initCopy);
+      })();
+    </script>
+    {% endif %}
+    {% else %}
+    <span class="badge badge-error">Error</span>
+    <h1>Login Failed</h1>
+    <p class="error-message">{{ error_message }}</p>
+    {% endif %}
+    {% if success %}
+    <form action="/logout" method="post" style="display:inline; margin-top:1.5rem;">
+      <input type="hidden" name="session_id" value="{{ session_id }}">
+      <button type="submit" class="logout-btn">Logout</button>
+    </form>
+    {% endif %}
+    <div style="margin-top:1.5rem;font-family:ui-monospace,monospace;font-size:0.6875rem;color:var(--muted);opacity:0.5;">{{ git_hash }}</div>
+  </div>
+</body>
+</html>

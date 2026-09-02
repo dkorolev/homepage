@@ -1,0 +1,187 @@
+@charset "utf-8";
+
+/* Liquid Glass */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  width: 100%;
+}
+
+body {
+  background-image: url('background.jpg');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Outer container: position the balloon */
+.outer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  min-height: 100vh;
+  padding: 40px;
+}
+
+/* The glass balloon */
+.wrapper {
+  position: relative;
+  padding: 28px 36px;
+  border-radius: 24px;
+
+  /* Frosted glass */
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.45) 0%,
+    rgba(255, 255, 255, 0.25) 50%,
+    rgba(255, 255, 255, 0.35) 100%
+  );
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
+
+  /* Luminous glass edge */
+  border: 1px solid rgba(255, 255, 255, 0.55);
+
+  /* Depth: soft outer glow + diffused shadow */
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.3),
+    0 2px 8px rgba(0, 0, 0, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.10),
+    0 24px 48px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+
+  /* Smooth entrance */
+  animation: glassAppear 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Top-edge specular highlight */
+.wrapper::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.8),
+    transparent
+  );
+  border-radius: 24px 24px 0 0;
+}
+
+/* Subtle inner refraction glow */
+.wrapper::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 24px;
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.15) 0%,
+    transparent 40%
+  );
+  pointer-events: none;
+}
+
+@keyframes glassAppear {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Links list */
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+ul li {
+  text-align: center;
+  padding: 0;
+  margin: 0;
+}
+
+ul li + li {
+  margin-top: 2px;
+}
+
+.headerLine {
+  display: block;
+}
+
+.headerLine a {
+  display: block;
+  padding: 8px 16px;
+  border-radius: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: rgba(0, 0, 0, 0.82);
+  text-decoration: none;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.headerLine a:visited {
+  color: rgba(0, 0, 0, 0.82);
+}
+
+.headerLine a:hover {
+  background: rgba(255, 255, 255, 0.45);
+  color: rgba(0, 0, 0, 0.92);
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.4),
+    0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.headerLine a:active {
+  background: rgba(255, 255, 255, 0.55);
+  transform: scale(0.98);
+  transition: transform 0.08s ease;
+}
+
+/* Debug links */
+.headerLine a.debug,
+.headerLine a.debug:visited {
+  color: rgba(220, 120, 0, 0.95) !important;
+}
+
+.headerLine a.debug:hover,
+.headerLine a.debug:active {
+  color: rgba(255, 140, 0, 0.98) !important;
+}
+
+/* Mobile */
+@media (max-width: 600px) {
+  .outer {
+    justify-content: center;
+    padding: 24px 16px;
+  }
+
+  .wrapper {
+    padding: 22px 24px;
+    border-radius: 20px;
+    width: 100%;
+    max-width: 340px;
+  }
+}

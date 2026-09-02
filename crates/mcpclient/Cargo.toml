@@ -1,0 +1,17 @@
+[package]
+name = "homepage-mcpclient"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.7", features = ["json"] }
+base64 = "0.22"
+rand = "0.8"
+reqwest = { version = "0.13", default-features = true, features = ["json", "form"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+turul-mcp-client = { version = "0.3", default-features = true }
+url = "2.5"

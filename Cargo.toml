@@ -1,0 +1,20 @@
+[workspace]
+members = [
+  "crates/app",
+  "crates/oauth",
+  "crates/webauthn",
+  "crates/mcpclient",
+]
+resolver = "2"
+
+[patch.crates-io]
+# Send Accept: application/json, text/event-stream so servers that require both (e.g. MCP streamable HTTP) accept our requests.
+turul-mcp-client = { path = "crates/turul-mcp-client" }
+
+[profile.fast-release]
+inherits = "release"
+# Optimize for shorter rebuilds while keeping release-like codegen.
+incremental = true
+codegen-units = 256
+debug = 0
+strip = "debuginfo"

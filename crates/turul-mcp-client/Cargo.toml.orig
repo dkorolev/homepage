@@ -1,0 +1,52 @@
+[package]
+name = "turul-mcp-client"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Comprehensive MCP client library with multi-transport support"
+
+[dependencies]
+# MCP framework dependencies
+turul-mcp-protocol = { workspace = true }
+turul-mcp-json-rpc-server = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true, features = ["full"] }
+futures = { workspace = true }
+async-trait = { workspace = true }
+
+# HTTP client
+reqwest = { workspace = true, features = ["json", "stream"] }
+hyper = { workspace = true }
+
+# JSON handling
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Utilities
+url = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+rand = { workspace = true }
+parking_lot = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Optional features for different transports
+tokio-util = { workspace = true, features = ["codec"], optional = true }
+
+[features]
+default = ["http", "sse"]
+# Transport features
+http = []
+sse = ["tokio-util"]
+stdio = ["tokio-util"]
+# All transports
+all-transports = ["http", "sse", "stdio"]
+
+[dev-dependencies]
+tokio-test.workspace = true
