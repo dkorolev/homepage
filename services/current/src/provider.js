@@ -45,6 +45,7 @@ export async function createProvider(settings, accounts) {
       revocation: { enabled: true, allowedPolicy: (_ctx, client, token) => token.clientId === client.clientId },
       introspection: { enabled: true, allowedPolicy: (_ctx, client, token) => token.clientId === client.clientId },
       claimsParameter: { enabled: true },
+      backchannelLogout: { enabled: true },
       rpInitiatedLogout: {
         enabled: true,
         logoutSource: async (ctx, logoutForm) => {
@@ -82,5 +83,7 @@ export async function createProvider(settings, accounts) {
   provider.proxy = true;
   // Never log authorization codes, tokens, or provider response bodies.
   provider.on('server_error', (_ctx, err) => console.error('OIDC server error:', err.name));
+  // Report delivery failures without logging callback URLs, account IDs, or signed logout tokens.
+  provider.on('backchannel.error', () => console.error('OIDC back-channel logout delivery failed'));
   return { provider, clients, registrationToken };
 }

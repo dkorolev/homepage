@@ -1,11 +1,12 @@
 import { test, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import express from 'express';
 import { chromium } from '@playwright/test';
 import * as oidc from 'openid-client';
 import { createLocalJWKSet, jwtVerify } from 'jose';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { fixture } from './fixture.js';
+import { fixture, listen } from './fixture.js';
 import { Accounts, Memory, memoryAdapter } from '../src/memory.js';
 import { createProvider } from '../src/provider.js';
 
@@ -234,6 +235,69 @@ for (const entry of ['account', 'direct', 'redirect']) {
     await page.goto(`${service.origin}/demo/oidc`);
     assert.equal(await page.getByRole('link', { name: 'Continue with Google' }).count(), 1);
     assert.equal(await page.locator('button[value="approve"]').count(), 0);
+  });
+}
+
+for (const receiverStatus of [200, 503]) {
+  test(`confirmed sign-out sends signed back-channel logout with receiver status ${receiverStatus}; cancellation sends nothing`, async t => {
+    const errors = t.mock.method(console, 'error', () => {});
+    const notifications = [];
+    const receiver = express();
+    receiver.use(express.urlencoded({ extended: false }));
+    receiver.post('/logout', (req, res) => {
+      notifications.push({ token: req.body.logout_token, cookie: req.get('cookie') });
+      res.status(receiverStatus).end();
+    });
+    const endpoint = await listen(receiver);
+    t.after(() => endpoint.close());
+    // The provider rejects private-network destinations in production. Only this test's ephemeral
+    // receiver bypasses that dispatcher; the real HTTP request, signed token, and all other URLs stay intact.
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (url, options) => String(url) === `${endpoint.origin}/logout`
+      ? realFetch(url, { ...options, dispatcher: undefined }) : realFetch(url, options);
+    t.after(() => { globalThis.fetch = realFetch; });
+    const discovery = await (await fetch(`${service.origin}/.well-known/openid-configuration`)).json();
+    assert.equal(discovery.backchannel_logout_supported, true);
+    assert.equal(discovery.backchannel_logout_session_supported, true);
+    const client = await register({ backchannel_logout_uri: `${endpoint.origin}/logout`, backchannel_logout_session_required: true });
+    assert.equal(client.backchannel_logout_session_required, true);
+    const jwks = createLocalJWKSet(await (await fetch(discovery.jwks_uri)).json());
+    const sessions = [];
+    for (let n = 0; n < 2; n++) {
+      const { page } = await browserSession(t);
+      await googleLogin(page);
+      const grant = await authorization(page, client);
+      const response = await token(client, { grant_type: 'authorization_code', code: grant.code, redirect_uri: client.redirect_uris[0], code_verifier: grant.verifier });
+      assert.equal(response.status, 200);
+      const tokens = await response.json();
+      const { payload } = await jwtVerify(tokens.id_token, jwks, { issuer: service.origin, audience: client.client_id, algorithms: ['RS256'] });
+      assert.equal(typeof payload.sid, 'string');
+      sessions.push({ page, sid: payload.sid, sub: payload.sub });
+    }
+    assert.notEqual(sessions[0].sid, sessions[1].sid);
+    const { page, sid, sub } = sessions[0];
+    await page.goto(`${service.origin}/oauth/logout`);
+    await page.getByRole('button', { name: 'No, stay signed in' }).click();
+    assert.equal(notifications.length, 0);
+    await page.goto(`${service.origin}/account`);
+    await page.getByRole('button', { name: 'Sign out of Current' }).click();
+    await page.getByRole('button', { name: 'Yes, sign me out' }).click();
+    await page.waitForLoadState('load');
+    assert.equal((await (await page.request.get(`${service.origin}/api/session`)).json()).account, null);
+    const params = new URLSearchParams({ client_id: client.client_id, redirect_uri: client.redirect_uris[0], response_type: 'code', scope: 'openid', prompt: 'none' });
+    const response = await page.request.get(`${service.origin}/oauth/authorize?${params}`, { maxRedirects: 0 });
+    assert.equal(new URL(response.headers().location).searchParams.get('error'), 'login_required');
+    assert.deepEqual(errors.mock.calls.map(call => call.arguments), receiverStatus === 503
+      ? [['OIDC back-channel logout delivery failed']] : []);
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].cookie, undefined);
+    const { payload } = await jwtVerify(notifications[0].token, jwks, { issuer: service.origin, audience: client.client_id, algorithms: ['RS256'], maxTokenAge: '5 minutes' });
+    assert.deepEqual(payload.events, { 'http://schemas.openid.net/event/backchannel-logout': {} });
+    assert.equal(payload.sid, sid);
+    assert.equal(payload.sub, sub);
+    assert.equal(typeof payload.jti, 'string');
+    assert.equal(payload.nonce, undefined);
+    assert.ok((await (await sessions[1].page.request.get(`${service.origin}/api/session`)).json()).account);
   });
 }
 
