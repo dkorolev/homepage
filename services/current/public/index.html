@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Working demos of OAuth, OpenID Connect, and tools for agents. Sign in, connect a service, or give your name a color.">
+  <title>Current · Tools that connect</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" sizes="any">
+  <link rel="stylesheet" href="/assets/prnui.css"><link rel="stylesheet" href="/assets/style.css"><script src="/assets/site.js" defer></script>
+</head>
+<body class="current-site">
+  <header class="site-header"><a class="wordmark" href="https://github.com/c5t/current">current<span>↗</span></a><nav aria-label="Main navigation"><a href="#demos">Demos</a><a href="/setup">Build with Current</a><a href="/account" id="account-link">Your account</a></nav></header>
+  <main>
+    <section class="hero">
+      <p class="eyebrow"><span class="status-dot"></span> THE CURRENT PLAYGROUND</p>
+      <h1>Tools that connect<span class="highlight">.</span></h1>
+      <p class="intro">Identity for people. Interfaces for agents.<br>Working experiments, ready to try.</p>
+      <div class="hero-actions"><a class="chamfer btn btn--cyan button" href="#demos"><span>Explore the demos ↓</span></a><a class="text-link" href="https://dima.ai">dima.ai ↗</a><a class="text-link" href="https://github.com/C5T/current">Current on GitHub ↗</a></div>
+    </section>
+    <section id="demos"><div class="section-heading"><h2>Try a connection.</h2><span class="eyebrow">01—04 / LIVE DEMOS</span></div>
+      <div class="cards">
+        <article class="chamfer card card--accent-left accent-cyan demo-card" data-section-ref="01"><div class="card-top"><span class="section-label">OAUTH 2.0 CLIENT</span></div><h3>Bring your identity.</h3><p>Sign in with Google or GitHub and inspect the profile returned to Current. No inbox or repository access.</p><div class="actions"><a class="chamfer btn btn--cyan button" href="/auth/google"><span>Sign in with Google</span></a><a class="chamfer btn btn--muted button secondary" href="/auth/github"><span>Sign in with GitHub</span></a></div><p class="small" id="provider-status">Google sign-in also creates your temporary Current account.</p></article>
+        <article class="chamfer card card--accent-left accent-orange demo-card" data-section-ref="02"><div class="card-top"><span class="section-label">OAUTH 2.0 SERVER</span></div><h3>Take Current with you.</h3><p>Get a random six-digit Current ID through Google. Then let another service sign you in through Current.</p><div class="panel identity-preview"><span>CURRENT ID</span><strong id="current-id">••• •••</strong><span>YOURS FOR THIS EXPERIMENT</span></div><div class="actions"><a class="chamfer btn btn--orange button" href="https://dima.ai/current-demo" id="dima-link"><span>Try on dima.ai ↗</span></a><a class="text-link" href="/demo/oauth">OAuth-only flow →</a></div></article>
+        <article class="chamfer card card--accent-left accent-purple demo-card" data-section-ref="03"><div class="card-top"><span class="section-label">OPENID CONNECT</span></div><h3>A verifiable sign-in.</h3><p>Run the complete authorization code journey: discovery, consent, signed identity token, and a profile checked by the client.</p><div class="flow"><span>Client</span><b>→</b><span>Current</span><b>→</b><span>Verified identity</span></div><div class="actions"><a class="chamfer btn btn--purple button" href="/demo/oidc"><span>Try OIDC sign-in</span></a><a class="text-link" href="/.well-known/openid-configuration">Discovery ↗</a></div><p class="small"><a href="/clients">Register your own service</a> · <a href="/setup">Connect an Okta provider</a><span id="enterprise-link" hidden> · <a href="/auth/enterprise">Enterprise sign-in →</a></span></p></article>
+        <article class="chamfer card card--accent-left accent-green demo-card color-card" data-section-ref="04">
+          <div class="card-top"><span class="section-label">PUBLIC MCP SERVER</span></div>
+          <h3>A name. A random color.</h3><p>A tiny tool for an agent—or for you. Say your name and join the board. The latest five submissions are visible to everyone.</p>
+          <form id="color-form"><label for="color-name" class="sr-only">Public display name</label><div class="input-row"><div class="chamfer field-control"><input class="field-input" id="color-name" name="name" placeholder="Your public name" required maxlength="60" autocomplete="off"></div><button class="chamfer btn btn--green" type="submit"><span>Get a color ↗</span></button></div></form>
+          <p id="color-status" role="status" class="small">No account needed. Your name will be public.</p>
+          <div class="mcp-connect" id="connect-mcp">
+            <details>
+              <summary>Connect ChatGPT or Claude</summary>
+              <ol class="mcp-steps">
+                <li>Copy this server URL.
+                  <label class="sr-only" for="mcp-url">MCP server URL</label><div class="chamfer field-control"><input class="field-input" id="mcp-url" value="https://current.ai/mcp" readonly spellcheck="false"></div>
+                  <button class="text-button" type="button" data-copy="mcp-url" data-copied="Server URL copied. Paste it into the connection settings below.">Copy server URL</button>
+                </li>
+                <li>Open your app and add a connection named <strong>Current Colors</strong>.
+                  <p><a href="https://chatgpt.com/plugins" target="_blank" rel="noopener noreferrer">Open ChatGPT Plugins ↗</a> → <strong>+</strong> → paste the URL under <strong>Connection</strong>. Choose no authentication if asked.</p>
+                  <p><a href="https://claude.ai/customize/connectors" target="_blank" rel="noopener noreferrer">Open Claude Connectors ↗</a> → <strong>+</strong> → <strong>Add custom connector</strong> → paste the URL → <strong>Add</strong>. Leave OAuth settings empty.</p>
+                </li>
+                <li>Enable Current Colors in a chat’s tools menu, then paste this:
+                  <label class="sr-only" for="mcp-chat-prompt">Prompt for ChatGPT or Claude</label><div class="chamfer field-control"><textarea class="field-input" id="mcp-chat-prompt" rows="3" readonly>Use Current Colors. Ask me for a public display name, give it a random color, and show me the latest five names and colors.</textarea></div>
+                  <button class="text-button" type="button" data-copy="mcp-chat-prompt" data-copied="Prompt copied. Paste it into your chat with Current Colors enabled.">Copy chat prompt</button>
+                </li>
+              </ol>
+              <p class="small">ChatGPT needs Developer mode in Settings → Security and login. A workspace admin may need to enable custom connections. Setup guides: <a href="https://developers.openai.com/plugins/deploy/connect-chatgpt" target="_blank" rel="noopener noreferrer">ChatGPT ↗</a> · <a href="https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp" target="_blank" rel="noopener noreferrer">Claude ↗</a></p>
+            </details>
+            <details>
+              <summary>Use Codex or Claude Code</summary>
+              <p>Copy this prompt into your coding agent. It will set up the connection and help you try it.</p>
+              <label class="sr-only" for="mcp-agent-prompt">Prompt for Codex or Claude Code</label><div class="chamfer field-control"><textarea class="field-input" id="mcp-agent-prompt" rows="7" readonly>Connect this coding agent to the Current Colors MCP server at https://current.ai/mcp (HTTP, no authentication). Configure it for this agent, keeping my existing connections. Then ask me for a public display name, call assign_color, and show my color and the latest_colors. If loading the tools needs a new session, tell me how to resume.</textarea></div>
+              <button class="chamfer btn btn--green button" type="button" data-copy="mcp-agent-prompt" data-copied="Prompt copied. Paste it into Codex or Claude Code."><span>Copy agent prompt</span></button>
+            </details>
+            <p id="mcp-copy-status" class="small" role="status"></p>
+          </div>
+        </article>
+      </div>
+    </section>
+    <section class="chamfer card card--accent-left accent-green board" data-section-ref="05"><div class="section-heading"><h2>The latest five.</h2><span class="eyebrow"><span class="status-dot"></span> PUBLIC COLOR BOARD</span></div><div id="color-board" aria-live="polite"><p class="muted">Loading the color board…</p></div></section>
+    <section class="chamfer card card--accent-left accent-purple build-note" data-section-ref="06"><div><p class="eyebrow">OPEN IT UP</p><h2>Bring your own service.<br>Or your own agent.</h2></div><div><p>Register an OAuth/OIDC client, point an MCP client at the color tool, or inspect the protocol endpoints.</p><a class="text-link" href="/setup">The integration guide →</a><p class="small">This is a playground. Accounts, IDs, integrations, and colors are kept in memory and reset when the service restarts.</p></div></section>
+  </main>
+  <footer class="site-footer"><span>Current · Working experiments</span><div><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="https://dima.ai">dima.ai ↗</a><a href="https://github.com/C5T/current">Current on GitHub ↗</a><a href="https://dima.ai/prn">PRN UI ↗</a></div></footer>
+</body>
+</html>

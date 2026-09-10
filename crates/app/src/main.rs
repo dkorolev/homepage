@@ -1,3 +1,5 @@
+mod current_proxy;
+
 use axum::{
   extract::{Form, Query, Request, State},
   handler::HandlerWithoutStateExt,
@@ -326,6 +328,7 @@ fn render_home(debug: bool) -> String {
     for (href, name) in [
       ("/passkey", "Passkey"),
       ("/login", "OAuth2"),
+      ("/current-demo", "Sign in with Current"),
       ("/mcpclient", "MCP Client"),
       ("/anthropiclimits", "Anthropic Limits"),
     ] {
@@ -406,44 +409,20 @@ async fn anthropiclimits_page() -> Html<&'static str> {
   Html(include_str!("../../../static/anthropiclimits-probe/index.html"))
 }
 
+async fn prnui_page() -> impl IntoResponse {
+  // Keep the specimen byte-for-byte upstream; update the submodule before each deployment.
+  ([(header::CACHE_CONTROL, "no-cache")], Html(include_str!("../../../vendor/prnui/prnui.html")))
+}
+
 const ZOOM_URL: &str = "https://us06web.zoom.us/j/2332123321";
 
 async fn zoom_redirect() -> impl IntoResponse {
   Redirect::permanent(ZOOM_URL)
 }
 
-// -- current.ai: a landing page pointing at the GitHub repo, then on to dima.ai.
+// -- Host routing for Current demos.
 
 const CURRENT_HOST: &str = "current.ai";
-const CURRENT_GITHUB_URL: &str = "https://github.com/c5t/current";
-const CURRENT_LANDING_NEXT_URL: &str = "https://dima.ai";
-const CURRENT_LANDING_SECONDS: u32 = 3;
-
-fn current_landing_html() -> String {
-  format!(
-    r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="{seconds};url={next}">
-<title>Current</title>
-<style>
-  body {{ margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }}
-  p {{ font-size: 1.5rem; padding: 0 1rem; text-align: center; }}
-</style>
-</head>
-<body>
-<p>This is Current, see <a href="{github}">github.com/c5t/current</a>.</p>
-</body>
-</html>
-"#,
-    seconds = CURRENT_LANDING_SECONDS,
-    next = CURRENT_LANDING_NEXT_URL,
-    github = CURRENT_GITHUB_URL,
-  )
-}
 
 /// What a hostname other than the FQDN gets from this server. The hostname the caller asked for
 /// decides, on both the HTTP and the HTTPS listener.
@@ -492,6 +471,7 @@ struct RequestMiddlewareState {
   static_dir: PathBuf,
   /// Directory holding the files named by `pad_asset`; the static dir in production.
   pad_dir: PathBuf,
+  current_proxy: Option<current_proxy::CurrentProxy>,
 }
 
 /// Maps a `/pad` request path to the file it serves under `pad_dir`, and that file's content type.
@@ -597,10 +577,21 @@ async fn host_redirects(
       }
       // ACME HTTP-01 challenges must reach the static files, so certbot's webroot mode can issue
       // and renew this host's certificate while the server keeps running.
-      Some(HostRule::Serve(_)) if !request.uri().path().starts_with("/.well-known/") => {
-        return Html(current_landing_html()).into_response();
+      Some(HostRule::Serve(_)) if !request.uri().path().starts_with("/.well-known/acme-challenge/") => {
+        return match &state.current_proxy {
+          Some(proxy) => proxy.forward(request, CURRENT_HOST, port).await,
+          None => current_proxy::unavailable(),
+        };
       }
       Some(HostRule::Serve(_)) | None => {}
+    }
+    if hostname.eq_ignore_ascii_case("dima.ai")
+      && (request.uri().path() == "/current-demo" || request.uri().path().starts_with("/current-demo/"))
+    {
+      return match &state.current_proxy {
+        Some(proxy) => proxy.forward(request, "dima.ai", port).await,
+        None => current_proxy::unavailable(),
+      };
     }
   }
 
@@ -745,7 +736,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let home_html = render_home(false);
   let home_html_debug = render_home(true);
   let state = AppState { home_html: Arc::new(home_html), home_html_debug: Arc::new(home_html_debug) };
-  let request_middleware_state = RequestMiddlewareState { static_dir: static_dir.clone(), pad_dir: static_dir.clone() };
+  let current_proxy = current_proxy::CurrentProxy::new(
+    &std::env::var("CURRENT_DEMOS_UPSTREAM").unwrap_or_else(|_| "http://127.0.0.1:3100".to_string()),
+  )?;
+  let request_middleware_state = RequestMiddlewareState {
+    static_dir: static_dir.clone(),
+    pad_dir: static_dir.clone(),
+    current_proxy: Some(current_proxy),
+  };
 
   // -- Build the app router.
   let app = Router::new()
@@ -755,6 +753,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     .route("/blog/chinese/invited-technical-cofounder", get(blog_chinese_redirect))
     .route("/zoom", get(zoom_redirect))
     .route("/anthropiclimits", get(anthropiclimits_page))
+    .route("/prn", get(prnui_page))
+    .route("/prn/", get(prnui_page))
     .nest_service("/static", ServeDir::new(&static_dir))
     .nest_service("/.well-known/acme-challenge", ServeDir::new(static_dir.join(ACME_CHALLENGE_DIR)))
     .nest_service("/.well-known", ServeDir::new(&static_dir))
@@ -799,7 +799,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let tls_config_v6 = tls_config.clone();
   let app_v6 = app.clone();
   tokio::spawn(async move {
-    match axum_server::bind_rustls(addr_v6, tls_config_v6).serve(app_v6.into_make_service()).await {
+    match axum_server::bind_rustls(addr_v6, tls_config_v6)
+      .serve(app_v6.into_make_service_with_connect_info::<SocketAddr>())
+      .await
+    {
       Ok(()) => {}
       Err(e) => {
         tracing::warn!("failed to bind HTTPS on {} (IPv6): {}, continuing without it", addr_v6, e);
@@ -807,7 +810,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
   });
 
-  axum_server::bind_rustls(addr_v4, tls_config).serve(app.into_make_service()).await.map_err(|e| e.into())
+  axum_server::bind_rustls(addr_v4, tls_config)
+    .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+    .await
+    .map_err(|e| e.into())
 }
 
 #[cfg(test)]
@@ -836,8 +842,11 @@ mod tests {
 
   fn test_app(pad_dir: PathBuf) -> Router {
     let static_dir = repo_static_dir();
-    let state = RequestMiddlewareState { static_dir: static_dir.clone(), pad_dir: pad_dir.clone() };
+    let state =
+      RequestMiddlewareState { static_dir: static_dir.clone(), pad_dir: pad_dir.clone(), current_proxy: None };
     Router::new()
+      .route("/prn", axum::routing::get(prnui_page))
+      .route("/prn/", axum::routing::get(prnui_page))
       .nest_service("/static", ServeDir::new(&static_dir))
       // Production keeps ACME tokens under the static dir; tests keep them in scratch.
       .nest_service("/.well-known/acme-challenge", ServeDir::new(pad_dir.join(ACME_CHALLENGE_DIR)))
@@ -854,6 +863,26 @@ mod tests {
     String::from_utf8(bytes.to_vec()).unwrap()
   }
 
+  #[tokio::test]
+  async fn prnui_serves_the_upstream_specimen_without_login() {
+    let app = test_app(repo_static_dir());
+    let source =
+      std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../vendor/prnui/prnui.html")).unwrap();
+    for path in ["/prn", "/prn/"] {
+      let request = Request::get(path).header(header::HOST, "dima.ai").body(Body::empty()).unwrap();
+      let response = app.clone().oneshot(request).await.unwrap();
+      assert_eq!(response.status(), StatusCode::OK);
+      assert_eq!(response.headers()[header::CONTENT_TYPE], "text/html; charset=utf-8");
+      assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
+      assert_eq!(body_string(response).await, source);
+    }
+    let request = Request::head("/prn").body(Body::empty()).unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(body_string(response).await.is_empty());
+    assert_eq!(get(&app, "/prn/.git").await.status(), StatusCode::NOT_FOUND);
+  }
+
   #[test]
   fn host_rules_cover_every_current_ai_spelling() {
     assert_eq!(host_rule("current.ai"), Some(HostRule::Serve(CURRENT_HOST)));
@@ -866,19 +895,16 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn current_ai_serves_the_landing_page_and_canonicalizes_other_spellings() {
+  async fn current_ai_routes_to_demos_and_canonicalizes_other_spellings() {
     let pad_dir = pad_test_dir("current-ai");
     let app = test_app(pad_dir.clone());
 
-    // The bare host gets the landing page on every path, statics and the pad alias included.
-    for path in ["/", "/some/path?q=1", "/pad", "/static/favicon.svg", "/.well-known"] {
+    // Current paths, including discovery, reach the sidecar; never the personal site.
+    for path in ["/", "/some/path?q=1", "/pad", "/prn", "/static/favicon.svg", "/.well-known"] {
       let request = Request::get(path).header(header::HOST, "current.ai").body(Body::empty()).unwrap();
       let response = app.clone().oneshot(request).await.unwrap();
-      assert_eq!(response.status(), StatusCode::OK, "{path}");
-      assert_eq!(response.headers().get(header::CONTENT_TYPE).unwrap(), "text/html; charset=utf-8", "{path}");
-      let body = body_string(response).await;
-      assert!(body.contains(&format!(r#"<a href="{}">github.com/c5t/current</a>"#, CURRENT_GITHUB_URL)), "{path}");
-      assert!(body.contains(&format!(r#"content="3;url={}""#, CURRENT_LANDING_NEXT_URL)), "{path}");
+      assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE, "{path}");
+      assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
     }
 
     // Other spellings redirect to the bare host, keeping path, query, and a non-default port.
@@ -902,7 +928,7 @@ mod tests {
     assert_eq!(response.headers().get(header::LOCATION).unwrap(), "https://current.ai:8443/x");
     let request = Request::get("https://current.ai/x").body(Body::empty()).unwrap();
     let response = app.clone().oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 
     // ACME challenges pass through to the static files, so certbot's webroot mode keeps working.
     std::fs::create_dir_all(pad_dir.join(ACME_CHALLENGE_DIR)).unwrap();

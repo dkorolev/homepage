@@ -858,6 +858,7 @@ dependencies = [
  "homepage-oauth",
  "homepage-webauthn",
  "percent-encoding",
+ "reqwest",
  "rustls",
  "serde",
  "tokio",

@@ -1,0 +1,11 @@
+{
+  "testName": "oidcc-discovery-endpoint-verification",
+  "status": "FINISHED",
+  "result": "PASSED",
+  "summary": "This test ensures that the server's configurations (including scopes, response_types, grant_types etc) contains values required by the specifications",
+  "test_id": "h8ODVQp1gaoNDoB",
+  "plan_id": "fWEm0htys0Yp6",
+  "verified_date_utc": "2026-09-05",
+  "discovery_url": "https://current.ai/.well-known/openid-configuration",
+  "tested_commit": "cb4806d"
+}

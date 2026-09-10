@@ -1,0 +1,4 @@
+[submodule "vendor/prnui"]
+	path = vendor/prnui
+	url = https://github.com/dkorolev/prnui.git
+	branch = main

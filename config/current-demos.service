@@ -1,0 +1,27 @@
+[Unit]
+Description=Current OAuth, OpenID Connect and MCP demos
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/home/ec2-user/website/services/current
+Environment=NODE_ENV=production
+Environment=PORT=3100
+Environment=CURRENT_JWKS_FILE=/home/ec2-user/.config/current-demos-jwks.json
+EnvironmentFile=/home/ec2-user/.config/current-demos.env
+ExecStart=/home/ec2-user/.local/current-node/bin/node --max-old-space-size=128 src/server.js
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+UMask=0077
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

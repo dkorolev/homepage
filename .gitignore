@@ -1,3 +1,6 @@
 /target
 registered.jsonl
 .ssl/
+node_modules/
+services/current/.env
+services/current/.keys/

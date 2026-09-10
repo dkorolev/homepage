@@ -1,0 +1,30 @@
+{
+  "name": "current-demos",
+  "version": "1.0.0",
+  "description": "Current OAuth, OpenID Connect, and MCP demos",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "cookie": "2.0.1",
+    "express": "5.2.1",
+    "express-rate-limit": "8.7.0",
+    "jose": "6.2.11",
+    "oidc-provider": "9.12.1",
+    "openid-client": "6.8.7",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

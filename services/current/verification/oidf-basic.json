@@ -1,0 +1,324 @@
+{
+  "tested_commit": "cb4806d",
+  "date_utc": "2026-09-05",
+  "suite_image": "registry.gitlab.com/openid/conformance-suite@sha256:a849feeba1b88a81f9da8e79ce1421c9e64452e8ad4b588a51f8d1562fc7b578",
+  "plan": "oidcc-basic-certification-test-plan",
+  "plan_id": "6N8PKoELZFdGC",
+  "environment": "HTTPS local service using a test-only upstream identity provider; no live Google identity or credential used",
+  "counts": {
+    "PASSED": 26,
+    "SKIPPED": 6,
+    "WARNING": 2,
+    "REVIEW": 4
+  },
+  "modules": [
+    {
+      "module": "oidcc-server",
+      "id": "mI85GUsuCBipA1H",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-response-type-missing",
+      "id": "FLD151rhAjqdzvK",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": [
+        {
+          "source": "ExpectResponseTypeMissingErrorPage",
+          "message": "Upload a screenshot of the error page showing a missing response type error.",
+          "result": "REVIEW"
+        }
+      ]
+    },
+    {
+      "module": "oidcc-idtoken-signature",
+      "id": "iQeiwmfS64TIlt5",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-idtoken-unsigned",
+      "id": "yvfSS5ycCqZNHSF",
+      "status": "FINISHED",
+      "result": "SKIPPED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-userinfo-get",
+      "id": "AqvMi0fWJLF7AQz",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-userinfo-post-header",
+      "id": "OShNSLvRS8474Gb",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-userinfo-post-body",
+      "id": "GE0l7DJeNQgMA4e",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-ensure-request-without-nonce-succeeds-for-code-flow",
+      "id": "HzUj7RHlnFXBcLq",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-scope-profile",
+      "id": "85BlmDX3tNyTkmr",
+      "status": "FINISHED",
+      "result": "WARNING",
+      "findings": [
+        {
+          "source": "VerifyScopesReturnedInUserInfoClaims",
+          "message": "'claims' in userinfo doesn't contain all scope items of scope in authorization request(corresponds to scope standard claims)",
+          "result": "WARNING"
+        }
+      ]
+    },
+    {
+      "module": "oidcc-scope-email",
+      "id": "w8mnN95zqsyh2sx",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-scope-address",
+      "id": "htcBnFVMhlTxp4D",
+      "status": "FINISHED",
+      "result": "SKIPPED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-scope-phone",
+      "id": "ZEJQpkQWbf462FU",
+      "status": "FINISHED",
+      "result": "SKIPPED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-scope-all",
+      "id": "RVZvzmv0btHjXTN",
+      "status": "FINISHED",
+      "result": "SKIPPED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-alternate-happy-flow",
+      "id": "X6hgLEg0HquRh5K",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-display-page",
+      "id": "pDv7slJvECC2PAG",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-display-popup",
+      "id": "BApa7PrRjPPHOqE",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-prompt-login",
+      "id": "Ycg7rvxl5IIlfHT",
+      "status": "FINISHED",
+      "result": "REVIEW",
+      "findings": [
+        {
+          "source": "ExpectSecondLoginPage",
+          "message": "The server must ask the user to login for a second time; a screenshot of this must be uploaded.",
+          "result": "REVIEW"
+        }
+      ]
+    },
+    {
+      "module": "oidcc-prompt-none-not-logged-in",
+      "id": "IwATRm3VZhdiAg1",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-prompt-none-logged-in",
+      "id": "0EkNC64xRRVNXo1",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-max-age-1",
+      "id": "ukTT7b2h4iT13A5",
+      "status": "FINISHED",
+      "result": "REVIEW",
+      "findings": [
+        {
+          "source": "ExpectSecondLoginPage",
+          "message": "The server must ask the user to login for a second time; a screenshot of this must be uploaded.",
+          "result": "REVIEW"
+        }
+      ]
+    },
+    {
+      "module": "oidcc-max-age-10000",
+      "id": "R1bupu7VF1n20lg",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-ensure-request-with-unknown-parameter-succeeds",
+      "id": "yqFG2q1eVKCr4TT",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-id-token-hint",
+      "id": "AiWCJlpkMsAnC3K",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-login-hint",
+      "id": "iA08QTbnpsBzuIe",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-ui-locales",
+      "id": "Zc1GduYvEzypXgU",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-claims-locales",
+      "id": "KlNSh0ms33gJrKY",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-ensure-request-with-acr-values-succeeds",
+      "id": "mqzkiLCOLiQYOQ1",
+      "status": "FINISHED",
+      "result": "WARNING",
+      "findings": [
+        {
+          "source": "ValidateIdTokenACRClaimAgainstAcrValuesRequest",
+          "message": "An acr value was requested using acr_values, so the server 'SHOULD' return an acr claim, but it did not.",
+          "result": "WARNING"
+        }
+      ]
+    },
+    {
+      "module": "oidcc-codereuse",
+      "id": "Zp4GyRDS0eDUPPX",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-codereuse-30seconds",
+      "id": "NPBfw6MYNuDdN2U",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-ensure-registered-redirect-uri",
+      "id": "5KWJdZSlrxBfw4l",
+      "status": "FINISHED",
+      "result": "REVIEW",
+      "findings": [
+        {
+          "source": "ExpectRedirectUriErrorPage",
+          "message": "Show redirect URI error page",
+          "result": "REVIEW"
+        }
+      ]
+    },
+    {
+      "module": "oidcc-ensure-post-request-succeeds",
+      "id": "pfCo3jWqQaVSbuV",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-server-client-secret-post",
+      "id": "GyHeNyplvNEP7lO",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-request-uri-unsigned-supported-correctly-or-rejected-as-unsupported",
+      "id": "uAdw1HqCFkmt1Mj",
+      "status": "FINISHED",
+      "result": "SKIPPED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-unsigned-request-object-supported-correctly-or-rejected-as-unsupported",
+      "id": "LPCVLNlW6XtDun8",
+      "status": "FINISHED",
+      "result": "SKIPPED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-claims-essential",
+      "id": "01ITY5Yv0bHt8n5",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-ensure-request-object-with-redirect-uri",
+      "id": "SZnoTi0R9ARYSPW",
+      "status": "FINISHED",
+      "result": "REVIEW",
+      "findings": [
+        {
+          "source": "ExpectRedirectUriErrorPage",
+          "message": "Show redirect URI error page",
+          "result": "REVIEW"
+        }
+      ]
+    },
+    {
+      "module": "oidcc-refresh-token",
+      "id": "DhX1cb7gWQsawbV",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    },
+    {
+      "module": "oidcc-ensure-request-with-valid-pkce-succeeds",
+      "id": "4P24J7ttRzhvi0B",
+      "status": "FINISHED",
+      "result": "PASSED",
+      "findings": []
+    }
+  ]
+}
