@@ -2,3 +2,7 @@
 	path = vendor/prnui
 	url = https://github.com/dkorolev/prnui.git
 	branch = main
+[submodule "vendor/pet-tts"]
+	path = vendor/pet-tts
+	url = https://github.com/dimacurrentai/pet-tts.git
+	branch = main

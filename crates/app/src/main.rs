@@ -331,6 +331,7 @@ fn render_home(debug: bool) -> String {
     ("/current-demo", "Sign in with Current"),
     ("/mcpclient", "MCP Client"),
     ("/anthropiclimits", "Anthropic Limits"),
+    ("/tts/", "TTS"),
   ] {
     html.push_str(&format!(
       "    <li data-debug{}><span class=\"headerLine\"><a href=\"{}\" class=\"debug\" style=\"color: #ff8c00 !important;\">{}</a></span></li>\n",
@@ -456,6 +457,14 @@ const ZOOM_URL: &str = "https://us06web.zoom.us/j/2332123321";
 async fn zoom_redirect() -> impl IntoResponse {
   Redirect::permanent(ZOOM_URL)
 }
+
+// -- Browser text-to-speech from the `vendor/pet-tts` submodule.
+
+/// Where the TTS app is served. Its build output is static, relocatable, and runs entirely on the
+/// visitor's device; see `vendor/pet-tts/README.md`.
+const TTS_PATH: &str = "/tts";
+/// The submodule's hosted build output, relative to the project root. Built during deployment.
+const TTS_BUILD_DIR: &str = "vendor/pet-tts/dist/hosted";
 
 // -- Host routing for Current demos.
 
@@ -632,6 +641,12 @@ async fn host_redirects(
     }
   }
 
+  // The TTS app's URLs and service worker scope are relative to its directory, so it needs the slash.
+  if request.uri().path() == TTS_PATH {
+    let query = request.uri().query().map(|query| format!("?{}", query)).unwrap_or_default();
+    return Redirect::permanent(&format!("{}/{}", TTS_PATH, query)).into_response();
+  }
+
   if let Some((file_name, content_type)) = pad_asset(request.uri().path()) {
     let pad_path = state.pad_dir.join(file_name);
     return match tokio::fs::read(&pad_path).await {
@@ -769,6 +784,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     return Err("static directory not found".into());
   };
   tracing::info!("static dir: {}", static_dir.display());
+  // The TTS build sits in the submodule next to `static/`; without it, `/tts/` answers 404.
+  let tts_dir = static_dir.parent().unwrap_or(&static_dir).join(TTS_BUILD_DIR);
+  if tts_dir.join("index.html").is_file() {
+    tracing::info!("TTS dir: {}", tts_dir.display());
+  } else {
+    tracing::warn!("TTS build missing at {}; build vendor/pet-tts to serve {}/", tts_dir.display(), TTS_PATH);
+  }
 
   let home_html = render_home(false);
   let home_html_debug = render_home(true);
@@ -793,6 +815,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     .route("/prn", get(prnui_page))
     .route("/prn/", get(prnui_page))
     .nest_service("/static", ServeDir::new(&static_dir))
+    .nest_service(TTS_PATH, ServeDir::new(&tts_dir))
     .nest_service("/.well-known/acme-challenge", ServeDir::new(static_dir.join(ACME_CHALLENGE_DIR)))
     .nest_service("/.well-known", ServeDir::new(&static_dir))
     .with_state(state)
@@ -885,6 +908,8 @@ mod tests {
       .route("/prn", axum::routing::get(prnui_page))
       .route("/prn/", axum::routing::get(prnui_page))
       .nest_service("/static", ServeDir::new(&static_dir))
+      // A stand-in for the TTS build, which needs a 114 MiB asset download.
+      .nest_service(TTS_PATH, ServeDir::new(pad_dir.join("tts")))
       // Production keeps ACME tokens under the static dir; tests keep them in scratch.
       .nest_service("/.well-known/acme-challenge", ServeDir::new(pad_dir.join(ACME_CHALLENGE_DIR)))
       .nest_service("/.well-known", ServeDir::new(&static_dir))
@@ -920,10 +945,48 @@ mod tests {
     assert_eq!(get(&app, "/prn/.git").await.status(), StatusCode::NOT_FOUND);
   }
 
+  #[tokio::test]
+  async fn tts_is_served_from_its_own_directory_with_javascript_types() {
+    let pad_dir = pad_test_dir("tts");
+    let tts_dir = pad_dir.join("tts");
+    std::fs::create_dir_all(tts_dir.join("assets")).unwrap();
+    std::fs::write(tts_dir.join("index.html"), "<!doctype html><title>TTS</title>").unwrap();
+    std::fs::write(tts_dir.join("sw.js"), "self;").unwrap();
+    std::fs::write(tts_dir.join("assets/lib.mjs"), "export {};").unwrap();
+    std::fs::write(tts_dir.join("assets/model.onnx.part-0"), [0u8, 1, 2]).unwrap();
+    let app = test_app(pad_dir.clone());
+
+    // Relative URLs and the service worker scope need the trailing slash; the query survives.
+    for (path, location) in [("/tts", "/tts/"), ("/tts?x=1", "/tts/?x=1")] {
+      let response = get(&app, path).await;
+      assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT, "{path}");
+      assert_eq!(response.headers()[header::LOCATION], location, "{path}");
+    }
+
+    let response = get(&app, "/tts/").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(body_string(response).await.contains("<title>TTS</title>"));
+    // Browsers run modules and workers only with a JavaScript type; either spelling counts.
+    for path in ["/tts/sw.js", "/tts/assets/lib.mjs"] {
+      let response = get(&app, path).await;
+      assert_eq!(response.status(), StatusCode::OK, "{path}");
+      let content_type = response.headers()[header::CONTENT_TYPE].to_str().unwrap().to_string();
+      assert!(["text/javascript", "application/javascript"].contains(&content_type.as_str()), "{path}: {content_type}");
+    }
+    let response = get(&app, "/tts/assets/model.onnx.part-0").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CONTENT_TYPE], "application/octet-stream");
+    // Missing pieces are 404s, never the page shell.
+    assert_eq!(get(&app, "/tts/assets/missing.bin").await.status(), StatusCode::NOT_FOUND);
+
+    std::fs::remove_dir_all(&pad_dir).unwrap();
+  }
+
   #[test]
   fn home_hides_debug_links_behind_more_unless_debug() {
     let plain = render_home(false);
     assert!(plain.contains("<li data-debug hidden><span class=\"headerLine\"><a href=\"/passkey\""));
+    assert!(plain.contains("<li data-debug hidden><span class=\"headerLine\"><a href=\"/tts/\" class=\"debug\""));
     assert!(plain.contains("<li id=\"more\"><span class=\"headerLine\"><a href=\"/?debug\" class=\"more\">more</a>"));
     assert!(plain
       .contains("<li id=\"less\" data-debug hidden><span class=\"headerLine\"><a href=\"/\" class=\"more\">less</a>"));
