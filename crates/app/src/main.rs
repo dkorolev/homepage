@@ -323,27 +323,54 @@ fn render_home(debug: bool) -> String {
   html.push_str("<ul>\n");
   html.push_str(&profile_items);
 
-  // Debug links.
-  if debug {
-    for (href, name) in [
-      ("/passkey", "Passkey"),
-      ("/login", "OAuth2"),
-      ("/current-demo", "Sign in with Current"),
-      ("/mcpclient", "MCP Client"),
-      ("/anthropiclimits", "Anthropic Limits"),
-    ] {
-      html.push_str(&format!(
-        "    <li><span class=\"headerLine\"><a href=\"{}\" class=\"debug\" style=\"color: #ff8c00 !important;\">{}</a></span></li>\n",
-        href, name
-      ));
-    }
+  // Debug links. Always rendered, so "more" can reveal them in place; hidden unless `?debug`.
+  let hidden = if debug { "" } else { " hidden" };
+  for (href, name) in [
+    ("/passkey", "Passkey"),
+    ("/login", "OAuth2"),
+    ("/current-demo", "Sign in with Current"),
+    ("/mcpclient", "MCP Client"),
+    ("/anthropiclimits", "Anthropic Limits"),
+  ] {
     html.push_str(&format!(
-      "    <li><span class=\"headerLine\" style=\"font-family:ui-monospace,monospace;font-size:0.75rem;color:rgba(0,0,0,0.35);padding-top:4px;\">{}</span></li>\n",
-      env!("GIT_HASH")
+      "    <li data-debug{}><span class=\"headerLine\"><a href=\"{}\" class=\"debug\" style=\"color: #ff8c00 !important;\">{}</a></span></li>\n",
+      hidden, href, name
     ));
   }
+  html.push_str(&format!(
+    "    <li data-debug{}><span class=\"headerLine\" style=\"font-family:ui-monospace,monospace;font-size:0.75rem;color:rgba(0,0,0,0.35);padding-top:4px;\">{}</span></li>\n",
+    hidden,
+    env!("GIT_HASH")
+  ));
+
+  // The barely noticeable "more" link: reveals the debug view without a reload.
+  html.push_str(&format!(
+    "    <li id=\"more\"{}><span class=\"headerLine\"><a href=\"/?debug\" class=\"more\">more</a></span></li>\n",
+    if debug { " hidden" } else { "" }
+  ));
 
   html.push_str("</ul>\n");
+
+  // Toggle the debug view in place; `pushState` makes "back" return to the plain view.
+  html.push_str(
+    "<script>\n\
+     (function() {\n\
+     \x20 function show(debug) {\n\
+     \x20   document.querySelectorAll('[data-debug]').forEach(function(e) { e.hidden = !debug; });\n\
+     \x20   document.getElementById('more').hidden = debug;\n\
+     \x20 }\n\
+     \x20 document.querySelector('#more a').addEventListener('click', function(e) {\n\
+     \x20   if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;\n\
+     \x20   e.preventDefault();\n\
+     \x20   history.pushState({ debug: true }, '', '?debug');\n\
+     \x20   show(true);\n\
+     \x20 });\n\
+     \x20 window.addEventListener('popstate', function() {\n\
+     \x20   show(new URLSearchParams(location.search).has('debug'));\n\
+     \x20 });\n\
+     })();\n\
+     </script>\n",
+  );
 
   // Close body.
   html.push_str("</div>\n</div>\n</body>\n</html>\n");
@@ -881,6 +908,24 @@ mod tests {
     assert_eq!(response.status(), StatusCode::OK);
     assert!(body_string(response).await.is_empty());
     assert_eq!(get(&app, "/prn/.git").await.status(), StatusCode::NOT_FOUND);
+  }
+
+  #[test]
+  fn home_hides_debug_links_behind_more_unless_debug() {
+    let plain = render_home(false);
+    assert!(plain.contains("<li data-debug hidden><span class=\"headerLine\"><a href=\"/passkey\""));
+    assert!(plain.contains("<li id=\"more\"><span class=\"headerLine\"><a href=\"/?debug\" class=\"more\">more</a>"));
+    assert!(!plain.contains("<li data-debug>"));
+
+    let debug = render_home(true);
+    assert!(debug.contains("<li data-debug><span class=\"headerLine\"><a href=\"/passkey\""));
+    assert!(debug.contains("<li id=\"more\" hidden>"));
+    assert!(!debug.contains("<li data-debug hidden>"));
+
+    for html in [&plain, &debug] {
+      assert!(html.contains("history.pushState"));
+      assert!(html.contains("popstate"));
+    }
   }
 
   #[test]
