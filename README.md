@@ -27,10 +27,12 @@ set -e
 cd /home/ec2-user/website
 git merge --ff-only dev
 git submodule update --init --checkout -- vendor/prnui vendor/offline-speech
-# Rebuild /tts/ only when offline-speech changed, then drop the raw downloads (~122 MB) to save disk.
+# Rebuild /tts/ only when offline-speech changed. The disk is small, so remove the old build first
+# (/tts/ answers 404 until the new one is ready) and drop the raw downloads (~122 MB) afterwards.
 NODE=/home/ec2-user/.local/current-node/bin/node
 TTS_COMMIT=$(git -C vendor/offline-speech rev-parse HEAD)
 if [ "$(cat vendor/offline-speech/dist/.homepage-built-commit 2>/dev/null)" != "$TTS_COMMIT" ]; then
+  rm -rf vendor/offline-speech/dist
   $NODE vendor/offline-speech/scripts/download-assets.mjs
   $NODE vendor/offline-speech/scripts/build-hosted.mjs
   rm -rf vendor/offline-speech/models vendor/offline-speech/vendor
