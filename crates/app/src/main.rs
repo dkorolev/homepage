@@ -349,9 +349,15 @@ fn render_home(debug: bool) -> String {
     if debug { " hidden" } else { "" }
   ));
 
+  // Its counterpart, below everything in the debug view: back to the plain view, also without a reload.
+  html.push_str(&format!(
+    "    <li id=\"less\" data-debug{}><span class=\"headerLine\"><a href=\"/\" class=\"more\">less</a></span></li>\n",
+    hidden
+  ));
+
   html.push_str("</ul>\n");
 
-  // Toggle the debug view in place; `pushState` makes "back" return to the plain view.
+  // Toggle the debug view in place; `pushState` makes "back" return to the previous view.
   html.push_str(
     "<script>\n\
      (function() {\n\
@@ -359,12 +365,16 @@ fn render_home(debug: bool) -> String {
      \x20   document.querySelectorAll('[data-debug]').forEach(function(e) { e.hidden = !debug; });\n\
      \x20   document.getElementById('more').hidden = debug;\n\
      \x20 }\n\
-     \x20 document.querySelector('#more a').addEventListener('click', function(e) {\n\
-     \x20   if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;\n\
-     \x20   e.preventDefault();\n\
-     \x20   history.pushState({ debug: true }, '', '?debug');\n\
-     \x20   show(true);\n\
-     \x20 });\n\
+     \x20 function toggle(id, debug) {\n\
+     \x20   document.querySelector('#' + id + ' a').addEventListener('click', function(e) {\n\
+     \x20     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;\n\
+     \x20     e.preventDefault();\n\
+     \x20     history.pushState({ debug: debug }, '', debug ? '?debug' : location.pathname);\n\
+     \x20     show(debug);\n\
+     \x20   });\n\
+     \x20 }\n\
+     \x20 toggle('more', true);\n\
+     \x20 toggle('less', false);\n\
      \x20 window.addEventListener('popstate', function() {\n\
      \x20   show(new URLSearchParams(location.search).has('debug'));\n\
      \x20 });\n\
@@ -915,11 +925,19 @@ mod tests {
     let plain = render_home(false);
     assert!(plain.contains("<li data-debug hidden><span class=\"headerLine\"><a href=\"/passkey\""));
     assert!(plain.contains("<li id=\"more\"><span class=\"headerLine\"><a href=\"/?debug\" class=\"more\">more</a>"));
+    assert!(plain
+      .contains("<li id=\"less\" data-debug hidden><span class=\"headerLine\"><a href=\"/\" class=\"more\">less</a>"));
     assert!(!plain.contains("<li data-debug>"));
 
     let debug = render_home(true);
     assert!(debug.contains("<li data-debug><span class=\"headerLine\"><a href=\"/passkey\""));
     assert!(debug.contains("<li id=\"more\" hidden>"));
+    assert!(
+      debug.contains("<li id=\"less\" data-debug><span class=\"headerLine\"><a href=\"/\" class=\"more\">less</a>")
+    );
+    // "less" comes last, below the build hash.
+    assert!(debug.find(env!("GIT_HASH")).unwrap() < debug.find("<li id=\"less\"").unwrap());
+    assert!(debug.find("<li id=\"more\"").unwrap() < debug.find("<li id=\"less\"").unwrap());
     assert!(!debug.contains("<li data-debug hidden>"));
 
     for html in [&plain, &debug] {
