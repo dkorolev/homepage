@@ -458,13 +458,13 @@ async fn zoom_redirect() -> impl IntoResponse {
   Redirect::permanent(ZOOM_URL)
 }
 
-// -- Browser text-to-speech from the `vendor/pet-tts` submodule.
+// -- Browser text-to-speech from the `vendor/offline-speech` submodule.
 
 /// Where the TTS app is served. Its build output is static, relocatable, and runs entirely on the
-/// visitor's device; see `vendor/pet-tts/README.md`.
+/// visitor's device; see `vendor/offline-speech/README.md`.
 const TTS_PATH: &str = "/tts";
 /// The submodule's hosted build output, relative to the project root. Built during deployment.
-const TTS_BUILD_DIR: &str = "vendor/pet-tts/dist/hosted";
+const TTS_BUILD_DIR: &str = "vendor/offline-speech/dist/hosted";
 
 // -- Host routing for Current demos.
 
@@ -789,7 +789,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   if tts_dir.join("index.html").is_file() {
     tracing::info!("TTS dir: {}", tts_dir.display());
   } else {
-    tracing::warn!("TTS build missing at {}; build vendor/pet-tts to serve {}/", tts_dir.display(), TTS_PATH);
+    tracing::warn!("TTS build missing at {}; build vendor/offline-speech to serve {}/", tts_dir.display(), TTS_PATH);
   }
 
   let home_html = render_home(false);
