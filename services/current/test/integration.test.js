@@ -1,5 +1,6 @@
 import { test, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import express from 'express';
 import { chromium } from '@playwright/test';
 import * as oidc from 'openid-client';
@@ -68,6 +69,23 @@ async function token(client, body) {
     body: new URLSearchParams(body),
   });
 }
+
+test('loopback requests are routed by X-Forwarded-Host, as the issuer back channel sends them', async () => {
+  // Node's fetch cannot set `Host`, so back-channel requests carry the back-channel address, never the issuer.
+  const { port } = new URL(service.origin);
+  const get = forwardedHost => new Promise((resolve, reject) => {
+    const headers = { host: `backchannel.invalid:${port}`, 'x-forwarded-proto': 'http', 'x-forwarded-host': forwardedHost };
+    http.get({ host: '127.0.0.1', port, path: '/.well-known/openid-configuration', headers }, response => {
+      let body = '';
+      response.on('data', chunk => { body += chunk; });
+      response.on('end', () => resolve({ status: response.statusCode, body }));
+    }).on('error', reject);
+  });
+  const discovered = await get(new URL(service.origin).host);
+  assert.equal(discovered.status, 200, discovered.body);
+  assert.equal(JSON.parse(discovered.body).issuer, service.origin);
+  assert.equal((await get('unknown.example')).status, 421);
+});
 
 test('Google creates a six-digit Current account and separate browsers reuse only the verified upstream identity', async t => {
   const { page } = await browserSession(t);

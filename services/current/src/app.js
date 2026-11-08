@@ -42,7 +42,9 @@ export async function createApp(settings) {
     return fetch(url, { ...init, headers, signal: init.signal || AbortSignal.timeout(15000), redirect: 'error' });
   };
   app.use((req, res, next) => {
-    const host = req.get('host');
+    // `req.host` honors X-Forwarded-Host from loopback proxies: the Rust ingress, and the issuer
+    // back channel above, whose fetch cannot override `Host` and so arrives as the loopback address.
+    const host = req.host;
     const origin = `${req.protocol}://${host}`;
     if (![settings.currentOrigin, settings.dimaOrigin].includes(origin)) return res.status(421).send('Unknown host.');
     req.demoOrigin = origin;
