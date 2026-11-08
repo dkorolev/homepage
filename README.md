@@ -8,15 +8,16 @@ Extended quite a bit for my personal tasks since.
 
 ## Redeploy
 
-Before **every deployment**, fetch the latest PRN UI from its upstream `main`, even if the homepage change is unrelated:
+Before **every deployment**, fetch the latest PRN UI and pet-tts from their upstream `main`, even if the homepage change is unrelated:
 
 ```sh
-git submodule update --init --remote --checkout -- vendor/prnui
+git submodule update --init --remote --checkout -- vendor/prnui vendor/pet-tts
 node --test vendor/prnui/test/prnui.test.mjs
+(cd vendor/pet-tts && npm run test:unit)
 cargo test -p homepage
 ```
 
-If the submodule commit changed, include the `vendor/prnui` gitlink in the deployment branch's commit and push it with the other changes. Keep any local submodule edits safe before updating. The PRN UI source belongs in [dkorolev/prnui](https://github.com/dkorolev/prnui); make UI changes there first.
+If a submodule commit changed, include its gitlink in the deployment branch's commit and push it with the other changes. Keep any local submodule edits safe before updating. The PRN UI source belongs in [dkorolev/prnui](https://github.com/dkorolev/prnui), and the TTS app in [dimacurrentai/pet-tts](https://github.com/dimacurrentai/pet-tts); make changes there first.
 
 On the production server, merge the prepared branch and initialize the recorded submodule version before compiling:
 
@@ -25,7 +26,16 @@ On the production server, merge the prepared branch and initialize the recorded 
 set -e
 cd /home/ec2-user/website
 git merge --ff-only dev
-git submodule update --init --checkout -- vendor/prnui
+git submodule update --init --checkout -- vendor/prnui vendor/pet-tts
+# Rebuild /tts/ only when pet-tts changed, then drop the raw downloads (~122 MB) to save disk.
+NODE=/home/ec2-user/.local/current-node/bin/node
+TTS_COMMIT=$(git -C vendor/pet-tts rev-parse HEAD)
+if [ "$(cat vendor/pet-tts/dist/.homepage-built-commit 2>/dev/null)" != "$TTS_COMMIT" ]; then
+  $NODE vendor/pet-tts/scripts/download-assets.mjs
+  $NODE vendor/pet-tts/scripts/build-hosted.mjs
+  rm -rf vendor/pet-tts/models vendor/pet-tts/vendor
+  echo "$TTS_COMMIT" > vendor/pet-tts/dist/.homepage-built-commit
+fi
 cp target/fast-release/homepage /home/ec2-user/homepage-before-deploy
 cargo build --profile fast-release -p homepage
 sudo systemctl restart website.service
@@ -40,6 +50,12 @@ cp /home/ec2-user/homepage-before-deploy target/fast-release/homepage.rollback
 mv target/fast-release/homepage.rollback target/fast-release/homepage
 sudo systemctl restart website.service
 ```
+
+## TTS
+
+[dima.ai/tts/](https://dima.ai/tts/) serves the pet-tts browser text-to-speech app, linked from the `?debug` view. Speech runs on the visitor's device: the server serves only static files, and text and audio never leave the browser. `/tts` redirects to `/tts/`, so the app's relative URLs and service-worker scope resolve.
+
+`vendor/pet-tts` is a Git submodule of the private [dimacurrentai/pet-tts](https://github.com/dimacurrentai/pet-tts), tracking `main`. The server reads it with a read-only deploy key (`~/.ssh/pet-tts-deploy`, the `github-pet-tts` host alias in `~/.ssh/config`, and a global `url.<alias>.insteadOf` rule for the submodule's HTTPS URL). The homepage serves `vendor/pet-tts/dist/hosted/` unchanged; without that build, startup logs a warning and `/tts/` answers 404. The build includes eSpeak NG under GPL-3.0-or-later; see the app's third-party notices.
 
 ## PRN UI
 
