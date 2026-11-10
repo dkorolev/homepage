@@ -338,6 +338,17 @@ fn render_home(debug: bool) -> String {
       hidden, href, name
     ));
   }
+  // The offline-speech commit behind "TTS", linked to its source.
+  let tts_commit = env!("OFFLINE_SPEECH_COMMIT");
+  if tts_commit.len() >= 7 {
+    html.push_str(&format!(
+      "    <li data-debug{}><span class=\"headerLine\" style=\"font-family:ui-monospace,monospace;font-size:0.75rem;\"><a href=\"{}/commit/{}\" style=\"display:inline;padding:0;font-size:inherit;font-weight:400;color:rgba(0,0,0,0.45);\">offline-speech {}</a></span></li>\n",
+      hidden,
+      OFFLINE_SPEECH_REPOSITORY,
+      tts_commit,
+      &tts_commit[..7]
+    ));
+  }
   html.push_str(&format!(
     "    <li data-debug{}><span class=\"headerLine\" style=\"font-family:ui-monospace,monospace;font-size:0.75rem;color:rgba(0,0,0,0.35);padding-top:4px;\">{}</span></li>\n",
     hidden,
@@ -463,6 +474,8 @@ async fn zoom_redirect() -> impl IntoResponse {
 /// Where the TTS app is served. Its build output is static, relocatable, and runs entirely on the
 /// visitor's device; see `vendor/offline-speech/README.md`.
 const TTS_PATH: &str = "/tts";
+/// The public repository of the TTS app, for linking its deployed commit.
+const OFFLINE_SPEECH_REPOSITORY: &str = "https://github.com/dimacurrentai/offline-speech";
 /// The submodule's hosted build output, relative to the project root. Built during deployment.
 const TTS_BUILD_DIR: &str = "vendor/offline-speech/dist/hosted";
 
@@ -998,6 +1011,13 @@ mod tests {
     assert!(
       debug.contains("<li id=\"less\" data-debug><span class=\"headerLine\"><a href=\"/\" class=\"more\">less</a>")
     );
+    // The TTS row is followed by a link to the exact offline-speech commit, above the build hash.
+    let commit = env!("OFFLINE_SPEECH_COMMIT");
+    assert_eq!(commit.len(), 40);
+    let link = format!("<a href=\"https://github.com/dimacurrentai/offline-speech/commit/{}\"", commit);
+    assert!(debug.find("<a href=\"/tts/\"").unwrap() < debug.find(&link).unwrap());
+    assert!(debug.find(&link).unwrap() < debug.find(env!("GIT_HASH")).unwrap());
+    assert!(debug.contains(&format!(">offline-speech {}</a>", &commit[..7])));
     // "less" comes last, below the build hash.
     assert!(debug.find(env!("GIT_HASH")).unwrap() < debug.find("<li id=\"less\"").unwrap());
     assert!(debug.find("<li id=\"more\"").unwrap() < debug.find("<li id=\"less\"").unwrap());
