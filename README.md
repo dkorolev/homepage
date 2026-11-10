@@ -8,15 +8,16 @@ Extended quite a bit for my personal tasks since.
 
 ## Redeploy
 
-Before **every deployment**, fetch the latest PRN UI from its upstream `main`, even if the homepage change is unrelated:
+Before **every deployment**, fetch the latest PRN UI and offline-speech from their upstream `main`, even if the homepage change is unrelated:
 
 ```sh
-git submodule update --init --remote --checkout -- vendor/prnui
+git submodule update --init --remote --checkout -- vendor/prnui vendor/offline-speech
 node --test vendor/prnui/test/prnui.test.mjs
+(cd vendor/offline-speech && npm run test:unit)
 cargo test -p homepage
 ```
 
-If the submodule commit changed, include the `vendor/prnui` gitlink in the deployment branch's commit and push it with the other changes. Keep any local submodule edits safe before updating. The PRN UI source belongs in [dkorolev/prnui](https://github.com/dkorolev/prnui); make UI changes there first.
+If a submodule commit changed, include its gitlink in the deployment branch's commit and push it with the other changes. Keep any local submodule edits safe before updating. The PRN UI source belongs in [dkorolev/prnui](https://github.com/dkorolev/prnui), and the TTS app in [dimacurrentai/offline-speech](https://github.com/dimacurrentai/offline-speech); make changes there first.
 
 On the production server, merge the prepared branch and initialize the recorded submodule version before compiling:
 
@@ -25,7 +26,18 @@ On the production server, merge the prepared branch and initialize the recorded 
 set -e
 cd /home/ec2-user/website
 git merge --ff-only dev
-git submodule update --init --checkout -- vendor/prnui
+git submodule update --init --checkout -- vendor/prnui vendor/offline-speech
+# Rebuild /tts/ only when offline-speech changed. The disk is small, so remove the old build first
+# (/tts/ answers 404 until the new one is ready) and drop the raw downloads (~190 MB, including ~68 MB of source archives) afterwards.
+NODE=/home/ec2-user/.local/current-node/bin/node
+TTS_COMMIT=$(git -C vendor/offline-speech rev-parse HEAD)
+if [ "$(cat vendor/offline-speech/dist/.homepage-built-commit 2>/dev/null)" != "$TTS_COMMIT" ]; then
+  rm -rf vendor/offline-speech/dist
+  $NODE vendor/offline-speech/scripts/download-assets.mjs
+  $NODE vendor/offline-speech/scripts/build-hosted.mjs
+  rm -rf vendor/offline-speech/models vendor/offline-speech/vendor
+  echo "$TTS_COMMIT" > vendor/offline-speech/dist/.homepage-built-commit
+fi
 cp target/fast-release/homepage /home/ec2-user/homepage-before-deploy
 cargo build --profile fast-release -p homepage
 sudo systemctl restart website.service
@@ -40,6 +52,12 @@ cp /home/ec2-user/homepage-before-deploy target/fast-release/homepage.rollback
 mv target/fast-release/homepage.rollback target/fast-release/homepage
 sudo systemctl restart website.service
 ```
+
+## TTS
+
+[dima.ai/tts/](https://dima.ai/tts/) serves the offline-speech browser text-to-speech app, linked from the `?debug` view. Speech runs on the visitor's device: the server serves only static files, and text and audio never leave the browser. `/tts` redirects to `/tts/`, so the app's relative URLs and service-worker scope resolve.
+
+`vendor/offline-speech` is a Git submodule of the public [dimacurrentai/offline-speech](https://github.com/dimacurrentai/offline-speech), tracking `main`. The server still reads it with a read-only deploy key (`~/.ssh/offline-speech-deploy`, the `github-offline-speech` host alias in `~/.ssh/config`, and a global `url.<alias>.insteadOf` rule for the submodule's HTTPS URL), set up while the repository was private. The homepage serves `vendor/offline-speech/dist/hosted/` unchanged; without that build, startup logs a warning and `/tts/` answers 404. offline-speech's own code is GPL-3.0-or-later, and its build bundles eSpeak NG under the same license; the app's page links its license and dependency notices, and `/tts/source/` serves the corresponding source archives. The debug view links the deployed offline-speech commit under the TTS row.
 
 ## PRN UI
 
