@@ -528,9 +528,22 @@ fn https_location(host: &str, port: Option<u16>, uri: &Uri) -> String {
 #[derive(Clone)]
 struct RequestMiddlewareState {
   static_dir: PathBuf,
+  /// The TTS app's build output, served under `TTS_PATH`.
+  tts_dir: PathBuf,
   /// Directory holding the files named by `pad_asset`; the static dir in production.
   pad_dir: PathBuf,
   current_proxy: Option<current_proxy::CurrentProxy>,
+}
+
+impl RequestMiddlewareState {
+  /// The directory and the path within it for a request that is answered straight from disk, so
+  /// every such tree gets the same revalidation headers. `None` for every other request.
+  fn disk_file<'a>(&'a self, path: &'a str) -> Option<(&'a Path, &'a str)> {
+    if let Some(relative) = path.strip_prefix(TTS_PATH).and_then(|rest| rest.strip_prefix('/')) {
+      return Some((&self.tts_dir, relative));
+    }
+    static_relative_path(path).map(|relative| (self.static_dir.as_path(), relative))
+  }
 }
 
 /// Maps a `/pad` request path to the file it serves under `pad_dir`, and that file's content type.
@@ -561,14 +574,14 @@ fn static_relative_path(path: &str) -> Option<&str> {
     .or_else(|| (path == "/static" || path == "/.well-known").then_some(""))
 }
 
-async fn static_etag(static_dir: &Path, request_path: &str) -> Option<HeaderValue> {
-  let relative = static_relative_path(request_path)?;
+/// The ETag of the file `relative` names under `dir`, or of its `index.html` when it is a directory.
+async fn static_etag(dir: &Path, relative: &str) -> Option<HeaderValue> {
   let decoded = percent_decode_str(relative).decode_utf8().ok()?;
   if decoded.contains('\\') {
     return None;
   }
 
-  let mut file_path = static_dir.to_path_buf();
+  let mut file_path = dir.to_path_buf();
   for component in Path::new(decoded.as_ref()).components() {
     match component {
       std::path::Component::Normal(segment) => file_path.push(segment),
@@ -683,8 +696,12 @@ async fn host_redirects(
     };
   }
 
-  let static_request = static_relative_path(request.uri().path()).is_some();
-  let etag = if static_request { static_etag(&state.static_dir, request.uri().path()).await } else { None };
+  let disk_file = state.disk_file(request.uri().path());
+  let static_request = disk_file.is_some();
+  let etag = match disk_file {
+    Some((dir, relative)) => static_etag(dir, relative).await,
+    None => None,
+  };
   let can_revalidate = matches!(*request.method(), Method::GET | Method::HEAD)
     && etag.as_ref().is_some_and(|etag| if_none_match_matches(&headers, etag));
 
@@ -813,6 +830,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   )?;
   let request_middleware_state = RequestMiddlewareState {
     static_dir: static_dir.clone(),
+    tts_dir: tts_dir.clone(),
     pad_dir: static_dir.clone(),
     current_proxy: Some(current_proxy),
   };
@@ -915,8 +933,12 @@ mod tests {
 
   fn test_app(pad_dir: PathBuf) -> Router {
     let static_dir = repo_static_dir();
-    let state =
-      RequestMiddlewareState { static_dir: static_dir.clone(), pad_dir: pad_dir.clone(), current_proxy: None };
+    let state = RequestMiddlewareState {
+      static_dir: static_dir.clone(),
+      tts_dir: pad_dir.join("tts"),
+      pad_dir: pad_dir.clone(),
+      current_proxy: None,
+    };
     Router::new()
       .route("/prn", axum::routing::get(prnui_page))
       .route("/prn/", axum::routing::get(prnui_page))
@@ -991,6 +1013,20 @@ mod tests {
     assert_eq!(response.headers()[header::CONTENT_TYPE], "application/octet-stream");
     // Missing pieces are 404s, never the page shell.
     assert_eq!(get(&app, "/tts/assets/missing.bin").await.status(), StatusCode::NOT_FOUND);
+
+    // Like `/static/`, every file revalidates, so a redeployed build is never mixed with a stale one.
+    for path in ["/tts/", "/tts/sw.js", "/tts/assets/model.onnx.part-0"] {
+      let response = get(&app, path).await;
+      assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache", "{path}");
+      let etag = response.headers()[header::ETAG].clone();
+      let request = Request::get(path).header(header::IF_NONE_MATCH, etag).body(Body::empty()).unwrap();
+      let not_modified = app.clone().oneshot(request).await.unwrap();
+      assert_eq!(not_modified.status(), StatusCode::NOT_MODIFIED, "{path}");
+      assert_eq!(not_modified.headers()[header::CACHE_CONTROL], "no-cache", "{path}");
+    }
+    // The page and its script are different files, with different validators.
+    let etag_of = |response: Response| response.headers()[header::ETAG].clone();
+    assert_ne!(etag_of(get(&app, "/tts/").await), etag_of(get(&app, "/tts/sw.js").await));
 
     std::fs::remove_dir_all(&pad_dir).unwrap();
   }
