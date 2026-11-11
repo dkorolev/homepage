@@ -323,76 +323,58 @@ fn render_home(debug: bool) -> String {
   html.push_str("<ul>\n");
   html.push_str(&profile_items);
 
-  // Debug links. Always rendered, so "more" can reveal them in place; hidden unless `?debug`.
+  // Debug rows. Always rendered, so "more" can reveal them in place; hidden unless `?debug`.
+  // Their looks live in `static/css.css`, never in `style` attributes.
   let hidden = if debug { "" } else { " hidden" };
-  for (href, name) in [
+  let mut rows: Vec<String> = [
     ("/passkey", "Passkey"),
     ("/login", "OAuth2"),
     ("/current-demo", "Sign in with Current"),
     ("/mcpclient", "MCP Client"),
     ("/anthropiclimits", "Anthropic Limits"),
     ("/tts/", "TTS"),
-  ] {
-    html.push_str(&format!(
-      "    <li data-debug{}><span class=\"headerLine\"><a href=\"{}\" class=\"debug\" style=\"color: #ff8c00 !important;\">{}</a></span></li>\n",
-      hidden, href, name
-    ));
-  }
+  ]
+  .iter()
+  .map(|(href, name)| {
+    format!(r#"<li data-debug{hidden}><span class="headerLine"><a href="{href}" class="debug">{name}</a></span></li>"#)
+  })
+  .collect();
+
   // The offline-speech commit behind "TTS", linked to its source.
   let tts_commit = env!("OFFLINE_SPEECH_COMMIT");
-  if tts_commit.len() >= 7 {
-    html.push_str(&format!(
-      "    <li data-debug{}><span class=\"headerLine\" style=\"font-family:ui-monospace,monospace;font-size:0.75rem;\"><a href=\"{}/commit/{}\" style=\"display:inline;padding:0;font-size:inherit;font-weight:400;color:rgba(0,0,0,0.45);\">offline-speech {}</a></span></li>\n",
-      hidden,
-      OFFLINE_SPEECH_REPOSITORY,
-      tts_commit,
-      &tts_commit[..7]
+  if let Some(short) = tts_commit.get(..7) {
+    rows.push(format!(
+      r#"<li data-debug{hidden}><span class="headerLine commit"><a href="{OFFLINE_SPEECH_REPOSITORY}/commit/{tts_commit}">offline-speech {short}</a></span></li>"#
     ));
   }
-  html.push_str(&format!(
-    "    <li data-debug{}><span class=\"headerLine\" style=\"font-family:ui-monospace,monospace;font-size:0.75rem;color:rgba(0,0,0,0.35);padding-top:4px;\">{}</span></li>\n",
-    hidden,
-    env!("GIT_HASH")
-  ));
+
+  // The homepage commit this binary was built from.
+  let git_hash = env!("GIT_HASH");
+  rows.push(format!(r#"<li data-debug{hidden}><span class="headerLine commit commit--self">{git_hash}</span></li>"#));
 
   // The barely noticeable "more" link: reveals the debug view without a reload.
-  html.push_str(&format!(
-    "    <li id=\"more\"{}><span class=\"headerLine\"><a href=\"/?debug\" class=\"more\">more</a></span></li>\n",
-    if debug { " hidden" } else { "" }
+  let more_hidden = if debug { " hidden" } else { "" };
+  rows.push(format!(
+    r#"<li id="more"{more_hidden}><span class="headerLine"><a href="/?debug" class="more">more</a></span></li>"#
   ));
 
   // Its counterpart, below everything in the debug view: back to the plain view, also without a reload.
-  html.push_str(&format!(
-    "    <li id=\"less\" data-debug{}><span class=\"headerLine\"><a href=\"/\" class=\"more\">less</a></span></li>\n",
-    hidden
+  rows.push(format!(
+    r#"<li id="less" data-debug{hidden}><span class="headerLine"><a href="/" class="more">less</a></span></li>"#
   ));
+
+  for row in rows {
+    html.push_str("    ");
+    html.push_str(&row);
+    html.push('\n');
+  }
 
   html.push_str("</ul>\n");
 
-  // Toggle the debug view in place; `pushState` makes "back" return to the previous view.
-  html.push_str(
-    "<script>\n\
-     (function() {\n\
-     \x20 function show(debug) {\n\
-     \x20   document.querySelectorAll('[data-debug]').forEach(function(e) { e.hidden = !debug; });\n\
-     \x20   document.getElementById('more').hidden = debug;\n\
-     \x20 }\n\
-     \x20 function toggle(id, debug) {\n\
-     \x20   document.querySelector('#' + id + ' a').addEventListener('click', function(e) {\n\
-     \x20     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;\n\
-     \x20     e.preventDefault();\n\
-     \x20     history.pushState({ debug: debug }, '', debug ? '?debug' : location.pathname);\n\
-     \x20     show(debug);\n\
-     \x20   });\n\
-     \x20 }\n\
-     \x20 toggle('more', true);\n\
-     \x20 toggle('less', false);\n\
-     \x20 window.addEventListener('popstate', function() {\n\
-     \x20   show(new URLSearchParams(location.search).has('debug'));\n\
-     \x20 });\n\
-     })();\n\
-     </script>\n",
-  );
+  // The "more"/"less" behavior, kept as a real JavaScript file so it reads and lints as one.
+  html.push_str("<script>\n");
+  html.push_str(include_str!("home.js"));
+  html.push_str("</script>\n");
 
   // Close body.
   html.push_str("</div>\n</div>\n</body>\n</html>\n");
@@ -1059,9 +1041,15 @@ mod tests {
     assert!(debug.find("<li id=\"more\"").unwrap() < debug.find("<li id=\"less\"").unwrap());
     assert!(!debug.contains("<li data-debug hidden>"));
 
+    // The commit rows share one small-print look, defined in the stylesheet.
+    assert!(debug.contains("<span class=\"headerLine commit\"><a href=\"https://github.com/"));
+    assert!(debug.contains(&format!("<span class=\"headerLine commit commit--self\">{}</span>", env!("GIT_HASH"))));
+
     for html in [&plain, &debug] {
       assert!(html.contains("history.pushState"));
       assert!(html.contains("popstate"));
+      // Looks belong to `static/css.css`; an inline style would outrank it and hide its rules.
+      assert!(!html.contains(" style="));
     }
   }
 
