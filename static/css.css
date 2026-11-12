@@ -160,15 +160,12 @@ ul li + li {
   transition: transform 0.08s ease;
 }
 
-/* Debug links */
+/* Debug links: one orange in every state */
 .headerLine a.debug,
-.headerLine a.debug:visited {
-  color: rgba(220, 120, 0, 0.95) !important;
-}
-
+.headerLine a.debug:visited,
 .headerLine a.debug:hover,
 .headerLine a.debug:active {
-  color: rgba(255, 140, 0, 0.98) !important;
+  color: #ff8c00;
 }
 
 /* Mobile */
@@ -202,5 +199,26 @@ ul li[hidden] {
 .headerLine a.more:hover {
   background: none;
   box-shadow: none;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+/* Debug view: the commits behind what is being served, in small print */
+.headerLine.commit {
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+}
+
+.headerLine.commit--self {
+  padding-top: 4px;
+  color: rgba(0, 0, 0, 0.35);
+}
+
+.headerLine.commit a,
+.headerLine.commit a:visited,
+.headerLine.commit a:hover {
+  display: inline;
+  padding: 0;
+  font-size: inherit;
+  font-weight: 400;
   color: rgba(0, 0, 0, 0.45);
 }
