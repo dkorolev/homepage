@@ -19,6 +19,12 @@ cargo test -p homepage
 
 If a submodule commit changed, include its gitlink in the deployment branch's commit and push it with the other changes. Keep any local submodule edits safe before updating. The PRN UI source belongs in [dkorolev/prnui](https://github.com/dkorolev/prnui), and the TTS app in [dimacurrentai/offline-speech](https://github.com/dimacurrentai/offline-speech); make changes there first.
 
+The prepared branch must contain both upstream homepage history and the deployed
+history. If they diverge, merge them locally and resolve the submodule pins to the
+reviewed upstream versions before deployment; do not reset production to upstream
+or replace its newer speech pin with an older one. The server merge below must
+remain a fast-forward.
+
 On the production server, merge the prepared branch and initialize the recorded submodule version before compiling:
 
 ```sh
@@ -55,7 +61,7 @@ sudo systemctl restart website.service
 
 ## TTS
 
-[dima.ai/tts/](https://dima.ai/tts/) serves the offline-speech browser text-to-speech app, linked from the `?debug` view. Speech runs on the visitor's device: the server serves only static files, and text and audio never leave the browser. `/tts` redirects to `/tts/`, so the app's relative URLs and service-worker scope resolve. Like `/static/`, its files carry `Cache-Control: no-cache` and an ETag, so browsers revalidate them and never mix a redeployed build with a stale copy.
+[dima.ai/tts/](https://dima.ai/tts/) serves the offline-speech browser text-to-speech app, linked from the `?debug` view. Speech runs on the visitor's device: the server serves only static files, and text and audio never leave the browser. `/tts` redirects to `/tts/`, so the app's relative URLs and service-worker scope resolve. Like `/static/`, its files carry `Cache-Control: no-cache` and an ETag, so the HTTP cache revalidates them. The app's service worker separately manages saved files and open-tab updates; these headers do not invalidate its Cache Storage.
 
 `vendor/offline-speech` is a Git submodule of the public [dimacurrentai/offline-speech](https://github.com/dimacurrentai/offline-speech), tracking `main`, fetched over plain HTTPS with no credentials. The homepage serves `vendor/offline-speech/dist/hosted/` unchanged; without that build, startup logs a warning and `/tts/` answers 404. offline-speech's own code is GPL-3.0-or-later, and its build bundles eSpeak NG under the same license; the app's page links its license and dependency notices, and `/tts/source/` serves the corresponding source archives. The debug view links the deployed offline-speech commit under the TTS row.
 
