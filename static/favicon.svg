@@ -1,1 +1,23 @@
-<svg width="32" height="32" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M 14 50 L 14 18 Q 14 10 22 10 L 42 10 Q 50 10 50 18 L 50 50" fill="none" stroke="#165ACD" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg width="512" height="512" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    The Rozoff D: dima.ai π rotated 90° clockwise (spine right, open left).
+    45° chamfers, violet, no background tile. Drawn at 512 so a client that
+    rasterizes this file's own size gets a sharp mark instead of a scaled 32px bitmap.
+  -->
+  <path
+    fill="#8957e5"
+    d="M 10 6
+       L 40 6
+       L 58 24
+       L 58 40
+       L 40 58
+       L 10 58
+       L 10 50
+       L 34 50
+       L 50 34
+       L 50 30
+       L 34 14
+       L 10 14
+       Z"
+  />
+</svg>
